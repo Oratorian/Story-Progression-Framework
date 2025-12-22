@@ -8,8 +8,7 @@ const modifier = (text) => {
   // Your other context modifier scripts go here (preferred)
 
   // Call story progression system
-  // This is where triggers get injected into the context
-  text = StoryProgression("context", text).text;
+  text = StoryProgression("context", text, stop).text;
 
   return { text };
 };
