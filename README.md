@@ -13,6 +13,10 @@ A customizable, intelligent progression system for AI Dungeon scenarios. Automat
 - **Debug Mode**: Track progression metrics in real-time
 - **Token Efficient**: Optimized for free-tier users with limited context
 
+## 🚀 Quick Start vs Custom 
+ - **Basic stories:** Plug & play. Just fill in `STORY_CONFIG` and `TRIGGERS` with your locations, characters, and prompt text. The default logic handles standard progression.
+ - **Complex scenarios:** The framework supports deep customization. For stories with multiple endings, branching paths, resource management, or unique mechanics, customize `getRichTrigger()` with your own logic.
+
 ## Quick Start
 
 1. Copy all script files (`library.js`, `input.js`, `context.js`, `output.js`) to your AI Dungeon scenario
@@ -267,4 +271,5 @@ Attribution appreciated but not required.
 ## Support
 
 For questions or issues, reference the original implementation at:
+
 [`The Luminous Fracture`](https://play.aidungeon.link/scenario/njotSUh1-cGe/the-luminous-fracture?share=true) scenario on AI Dungeon and contact me on Discord [Mahesvara](https://discord.com/users/149232275794558976)
