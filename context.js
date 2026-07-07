@@ -8,7 +8,7 @@ const modifier = (text) => {
   // Your other context modifier scripts go here (preferred)
 
   // Call story progression system
-  text = StoryProgression("context", text, stop).text;
+  text = StoryProgression("context", text).text;
 
   return { text };
 };
