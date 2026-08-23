@@ -50,8 +50,8 @@ All shared logic lives in `library.js`, which AI Dungeon automatically prepends 
 Everything in the customization guide below can be done in a browser instead, on a single page that
 needs no install, no account and no network once it has your file:
 
-**[Open the planner](https://oratorian.github.io/Story-Progression-Framework/web/)** — or open
-`web/index.html` from a downloaded copy of this repository. Either way nothing you load leaves your
+**[Open the planner](https://oratorian.github.io/Story-Progression-Framework/)** — or open
+`docs/index.html` from a downloaded copy of this repository. Either way nothing you load leaves your
 browser. Offline, drop your `library.js` onto the page (or paste it in) rather than using the two
 starting-point buttons: browsers will not let a `file://` page read the files next to it.
 
@@ -94,8 +94,9 @@ Story Progression Framework/
 ├── context.js    # Injects triggers (paste into Context tab, no changes)
 ├── output.js     # Detects story events (paste into Output tab, no changes)
 ├── EXAMPLE - The Lighthouse (filled in).js   # a complete worked story
-└── web/
-    └── index.html   # the planner and test harness (see above) — open it directly
+└── docs/
+    └── index.html   # the planner and test harness (see above) — this is what
+                     # GitHub Pages publishes, and it opens straight off disk too
 ```
 
 ## Customization Guide

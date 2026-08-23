@@ -7,11 +7,15 @@
   the real library file inside them, so what you see here is what the script
   will actually do in a scenario.
 
-  The page lives in web/. The two starting points are looked for beside the page
-  and one folder up first, and only then fetched from GitHub. Opened straight off
-  the disk with file://, most browsers refuse to let a page read its neighbours,
-  so a fully offline copy is loaded through "Use my own file" or the paste box -
-  both of which need nothing but the file itself.
+  The page lives in docs/, which is the folder GitHub Pages publishes - and it
+  publishes that folder AS the site root, so on the published copy there is no
+  library.js beside the page or one above it. The two starting points look in
+  both of those places first anyway, because that is where they are in a
+  downloaded copy of the repository, and fall back to fetching them from GitHub.
+
+  Opened straight off the disk with file://, most browsers refuse to let a page
+  read its neighbours at all. A fully offline copy is loaded through "Use my own
+  file" or the paste box - both of which need nothing but the file itself.
 -->
 <html lang="en">
 <head>
