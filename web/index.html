@@ -1,0 +1,2890 @@
+<!doctype html>
+<!--
+  Story Progression Framework - planner and test harness.
+
+  One file, no build step, no network needed once it has a script to work on.
+  It fakes AI Dungeon's globals (state, storyCards, addStoryCard, ...) and runs
+  the real library file inside them, so what you see here is what the script
+  will actually do in a scenario.
+
+  The page lives in web/. The two starting points are looked for beside the page
+  and one folder up first, and only then fetched from GitHub. Opened straight off
+  the disk with file://, most browsers refuse to let a page read its neighbours,
+  so a fully offline copy is loaded through "Use my own file" or the paste box -
+  both of which need nothing but the file itself.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Story Progression Framework - Planner &amp; Test Harness</title>
+<style>
+  :root {
+    --bg:#12141a; --panel:#181b23; --panel2:#1f232d; --line:#2c313d;
+    --fg:#e6e8ee; --dim:#98a0b3; --accent:#7aa2f7; --ok:#5fd08a;
+    --warn:#e0af68; --err:#f7768e; --chip:#262b36; --mag:#bb9af7;
+    --mono: ui-monospace, "Cascadia Mono", "Consolas", "DejaVu Sans Mono", monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--fg);
+    font: 14px/1.55 system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel);
+    display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+  }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .sub { color:var(--dim); font-size:12px; }
+  header .byline { font-size:12px; color:var(--dim); }
+  header .byline a { color:var(--accent); text-decoration:none; }
+  header .byline a:hover { text-decoration:underline; }
+  .grow { flex:1 1 auto; }
+
+  button {
+    background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:6px 11px; cursor:pointer; font-size:13px; font-family:inherit;
+    white-space:nowrap;
+  }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#0d1017; border-color:var(--accent); font-weight:600; }
+  button.tiny { padding:2px 7px; font-size:12px; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+
+  input:not([type=checkbox]):not([type=radio]), textarea, select {
+    background:#0e1017; color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:7px 9px; font-family:inherit; font-size:13px;
+  }
+  input::placeholder, textarea::placeholder { color:#5b6478; }
+  input:focus, textarea:focus, select:focus { outline:1px solid var(--accent); outline-offset:-1px; }
+  input[type=file] { padding:6px 9px; font-size:12px; }
+  textarea { font-family:var(--mono); font-size:12px; width:100%; }
+  a { color:var(--accent); }
+  label.inline { display:inline-flex; gap:6px; align-items:center; font-size:13px; color:var(--dim); }
+
+  #loader { padding:18px; max-width:1000px; margin:0 auto; }
+  .credit { text-align:center; margin-bottom:18px; }
+  .credit .who { margin:0; color:var(--dim); font-size:13px; }
+  .credit .by { margin:2px 0 10px; font-size:18px; font-weight:600; }
+  .credit .small { font-size:12px; color:var(--dim); margin:6px 0; }
+  .credit .sep { border-top:1px solid var(--line); padding-top:12px; margin-top:14px;
+                 font-size:12px; color:var(--dim); }
+  .drop {
+    border:2px dashed var(--line); border-radius:10px; padding:22px; text-align:center;
+    background:var(--panel); transition:border-color .15s, background .15s;
+  }
+  .drop.over { border-color:var(--accent); background:#1b2030; }
+  .drop h2 { margin:0 0 6px; font-size:15px; }
+  .drop p { margin:6px 0; color:var(--dim); font-size:13px; }
+  .starters {
+    display:grid; gap:10px; margin:16px auto 6px; max-width:820px;
+    grid-template-columns:repeat(auto-fit, minmax(230px, 1fr));
+  }
+  .starter, button.starter {
+    display:flex; flex-direction:column; gap:5px; align-items:stretch; padding:12px 14px;
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px;
+    font:inherit; color:var(--fg); white-space:normal; text-align:left;
+  }
+  button.starter { cursor:pointer; }
+  button.starter:hover { border-color:var(--accent); background:#1c2231; }
+  .starter b { font-size:13.5px; font-weight:600; }
+  .starter span { font-size:12px; color:var(--dim); line-height:1.45; }
+  .starter input[type=file] { margin-top:4px; }
+  details.paste { margin-top:14px; }
+  details.paste summary { cursor:pointer; color:var(--dim); font-size:13px; }
+
+  #app { display:none; }
+  .cols { display:grid; grid-template-columns: minmax(320px, 33%) 1fr; gap:0; align-items:start; }
+  @media (max-width: 980px) { .cols { grid-template-columns: 1fr; } }
+  .pane { border-right:1px solid var(--line); min-height:calc(100vh - 56px); min-width:0; }
+  .pane.right { border-right:none; }
+  .padded { padding:14px 16px; }
+  h3.sec {
+    margin:0 0 8px; font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--dim); font-weight:700;
+  }
+  h3.sec .n { color:var(--accent); }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:12px; }
+  .card.tight { padding:9px 10px; }
+  pre.entry {
+    margin:0; white-space:pre-wrap; word-break:break-word;
+    font-family:var(--mono); font-size:12px; color:#cdd6f4;
+  }
+  pre.code {
+    margin:0; overflow-x:auto; background:#0e1017; border:1px solid var(--line);
+    border-radius:6px; padding:10px; font-family:var(--mono); font-size:12px; color:#cdd6f4;
+    max-height:460px;
+  }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; font-size:13px; margin:0; }
+  .kv dt { color:var(--dim); }
+  .kv dd { margin:0; }
+  .fields { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:8px 10px; }
+  .fields label { display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--dim); }
+  .fields label input, .fields label select { width:100%; }
+  .quick { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .small { font-size:12px; }
+  .muted { color:var(--dim); }
+
+  .tabs { display:flex; gap:2px; border-bottom:1px solid var(--line); padding:0 10px; flex-wrap:wrap; background:var(--panel);
+          position:sticky; top:0; z-index:5; }
+  .tabs button {
+    border:none; background:none; border-bottom:2px solid transparent; border-radius:0;
+    padding:10px 12px; color:var(--dim);
+  }
+  .tabs button.on { color:var(--fg); border-bottom-color:var(--accent); }
+  .tabs button:hover { border-color:transparent; border-bottom-color:var(--line); color:var(--fg); }
+  .tab { display:none; }
+  .tab.on { display:block; }
+
+  table { border-collapse:collapse; width:100%; font-size:12.5px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
+  td.mono, .mono { font-family:var(--mono); }
+  tr.hit td { background:#161f2e; }
+
+  .chip {
+    display:inline-block; padding:1px 7px; border-radius:99px; font-size:11px;
+    background:var(--chip); color:var(--dim); border:1px solid var(--line);
+  }
+  .chip.ok  { color:var(--ok);   border-color:#2c5a41; background:#13251c; }
+  .chip.warn{ color:var(--warn); border-color:#5c4a24; background:#241e12; }
+  .chip.err { color:var(--err);  border-color:#5e2a35; background:#26141a; }
+  .chip.on  { color:var(--accent); border-color:#2f4675; background:#151c2c; }
+  .chip.mag { color:var(--mag); border-color:#453a6b; background:#1b1729; }
+
+  .beat {
+    border-left:3px solid var(--mag); padding:6px 10px; background:#191527; border-radius:0 6px 6px 0;
+    font-family:var(--mono); font-size:12px; color:#d7c7ff; margin:6px 0; white-space:pre-wrap;
+  }
+  .msg { border-left:3px solid var(--accent); padding:6px 10px; background:#161b28; border-radius:0 6px 6px 0;
+         font-size:12.5px; margin:6px 0; }
+  .said { border-left:3px solid var(--line); padding:4px 10px; margin:6px 0; font-size:12.5px; }
+  .said b { color:var(--dim); font-weight:600; }
+
+  .turn { border:1px solid var(--line); background:var(--panel); border-radius:8px; padding:9px 11px; margin-bottom:9px; }
+  .turn .no { font-size:11px; color:var(--dim); font-weight:700; letter-spacing:.05em; }
+
+  /* the ladder */
+  .rule { border:1px solid var(--line); background:var(--panel); border-radius:8px; margin-bottom:10px; overflow:hidden; }
+  .rule.off { opacity:.5; }
+  .rule.fires { border-color:#2f4675; box-shadow:inset 3px 0 0 var(--accent); }
+  .rule > .head { display:flex; gap:8px; align-items:center; padding:8px 10px; background:var(--panel2); flex-wrap:wrap; }
+  .rule > .head .num { font-family:var(--mono); color:var(--dim); font-size:12px; min-width:22px; }
+  .rule > .head input.note { flex:1 1 180px; min-width:120px; }
+  .rule > .body { padding:10px; }
+  .cond { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
+  .cond .lead { color:var(--dim); font-size:12px; min-width:30px; text-align:right; }
+  .cond select, .cond input { font-size:12.5px; padding:5px 7px; }
+  .cond input.num { width:80px; }
+  .cond input.raw { flex:1 1 260px; font-family:var(--mono); }
+  .cond .why { font-size:11px; }
+  .then { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:9px;
+          padding-top:9px; border-top:1px solid var(--line); }
+  .then select { flex:1 1 240px; min-width:160px; }
+  .plain { font-size:12.5px; color:var(--dim); margin:6px 0 0; }
+  .plain b { color:var(--fg); font-weight:600; }
+  .genline { font-family:var(--mono); font-size:11.5px; color:#8e94a6; margin-top:7px; white-space:pre-wrap;
+             border-top:1px dashed var(--line); padding-top:7px; }
+
+  .list-editor .item { display:flex; gap:6px; align-items:flex-start; margin-bottom:6px; flex-wrap:wrap; }
+  .list-editor .item > input { flex:1 1 140px; }
+  .bar { height:6px; background:var(--panel2); border-radius:3px; overflow:hidden; }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  .split { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width: 760px) { .split { grid-template-columns:1fr; } }
+  .steps { counter-reset:step; padding-left:0; list-style:none; margin:0; }
+  .steps > li { counter-increment:step; position:relative; padding-left:30px; margin-bottom:14px; }
+  .steps > li::before {
+    content:counter(step); position:absolute; left:0; top:1px; width:21px; height:21px;
+    border-radius:50%; background:var(--accent); color:#0d1017; font-size:12px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Story Progression Framework</h1>
+  <span class="sub">planner and test harness - nothing installed, nothing uploaded</span>
+  <span class="byline">script and page by
+    <a href="https://github.com/Oratorian/Story-Progression-Framework" target="_blank" rel="noopener">Oratorian</a>
+  </span>
+  <span class="grow"></span>
+  <span id="loadedName" class="sub"></span>
+  <button id="btnUnload" style="display:none">Load a different file</button>
+</header>
+
+<section id="loader">
+  <div class="credit">
+    <p class="who"><b>Story Progression Framework</b> is an AI Dungeon script by</p>
+    <p class="by"><a href="https://github.com/Oratorian" target="_blank" rel="noopener">Oratorian</a></p>
+    <p class="small">The script, its guide and its hook files live in the project:<br>
+      <a href="https://github.com/Oratorian/Story-Progression-Framework" target="_blank" rel="noopener">github.com/Oratorian/Story-Progression-Framework</a></p>
+    <p class="sep">This page lays your story out in forms, writes the finished
+      <span class="mono">library.js</span> for you, and then plays turns against it so you can see
+      it work before you paste anything into AI Dungeon. Nothing you load leaves your browser.</p>
+  </div>
+
+  <div class="drop" id="drop">
+    <h2>Start here</h2>
+    <p>Pick a starting point, or drop your own <span class="mono">library.js</span> onto this box.</p>
+    <div class="starters">
+      <button class="starter" data-starter="template">
+        <b>Start blank</b>
+        <span>The framework exactly as it ships: placeholder places, people and beats,
+              waiting to be replaced with yours.</span>
+      </button>
+      <button class="starter" data-starter="example">
+        <b>Start from the lighthouse example</b>
+        <span>Sethvale, already filled in: five places, three characters, two collectibles
+              and a fifteen-rung ladder to take apart.</span>
+      </button>
+      <div class="starter">
+        <b>Use my own file</b>
+        <span>The <span class="mono">library.js</span> you are already playing with.</span>
+        <input type="file" id="file" accept=".js,.txt">
+      </div>
+    </div>
+    <p class="small" id="loadHint"></p>
+    <details class="paste">
+      <summary>...or paste the script text instead</summary>
+      <p class="small muted" style="text-align:left">Paste the whole LIBRARY file, then press Run.</p>
+      <textarea id="pasteBox" rows="10" spellcheck="false" placeholder="const STORY_CONFIG = { ... }"></textarea>
+      <div class="row" style="justify-content:flex-start; margin-top:8px">
+        <button class="primary" id="btnPaste">Run pasted script</button>
+      </div>
+    </details>
+  </div>
+  <div id="loadError" style="margin-top:14px"></div>
+</section>
+
+<div id="app">
+  <div class="cols">
+
+    <!-- ============ LEFT: play ============ -->
+    <div class="pane padded">
+      <h3 class="sec">Where the story is</h3>
+      <div class="card" id="nowCard">
+        <dl class="kv" id="nowBox"></dl>
+        <div class="quick" id="nowChips"></div>
+      </div>
+
+      <h3 class="sec">Take a turn</h3>
+      <div class="card">
+        <div class="fields" style="grid-template-columns:1fr">
+          <label>You type
+            <input type="text" id="playerText" placeholder="I climb the cliff path and look around"
+                   autocomplete="off">
+          </label>
+          <label>...and the AI writes back
+            <textarea id="aiText" rows="2" spellcheck="false"
+              placeholder="(leave empty for a neutral reply - or make it mention a place to arrive there)"></textarea>
+          </label>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="primary" id="btnSend">Send turn</button>
+          <button id="btnSkip">Quiet turn &times;5</button>
+          <span class="grow"></span>
+          <button id="btnReset">Start over</button>
+        </div>
+        <div class="quick" id="quickPlayer"></div>
+        <div class="quick" id="quickAi"></div>
+      </div>
+
+      <h3 class="sec">Turn log</h3>
+      <div id="log"></div>
+    </div>
+
+    <!-- ============ RIGHT: tabs ============ -->
+    <div class="pane right">
+      <div class="tabs" id="tabs">
+        <button data-tab="story" class="on">Your story</button>
+        <button data-tab="build">Plan &amp; build</button>
+        <button data-tab="ladder">The ladder</button>
+        <button data-tab="dry">Dry run</button>
+        <button data-tab="install">Install</button>
+        <button data-tab="tests">Checks</button>
+        <button data-tab="hood">Under the hood</button>
+      </div>
+
+      <div class="padded">
+
+        <!-- ---------- Your story ---------- -->
+        <div class="tab on" id="tab-story">
+          <p class="small muted" style="margin-top:0">
+            Everything the loaded script knows about your world, in plain English. Places and people
+            are spotted in what the <b>AI</b> writes; the word lists at the bottom are matched against
+            what <b>you</b> type.
+          </p>
+          <div id="storyBox"></div>
+        </div>
+
+        <!-- ---------- Plan & build ---------- -->
+        <div class="tab" id="tab-build">
+          <p class="small muted" style="margin-top:0">
+            Fill these in and the page writes the finished <span class="mono">library.js</span> for you.
+            The engine at the bottom of the file is copied straight from the script you loaded, so it is
+            never out of date. Press <b>Use this and check it</b> to load what you have built back into
+            the harness and test it.
+          </p>
+          <div class="row" style="margin-bottom:10px">
+            <button data-act="seedExample">Start from the lighthouse example</button>
+            <button data-act="seedLoaded">Reset to the script I loaded</button>
+            <span class="grow"></span>
+            <span id="buildDirty" class="small muted"></span>
+            <button class="primary" data-act="useBuild">Use this and check it</button>
+          </div>
+          <div id="buildBody"></div>
+        </div>
+
+        <!-- ---------- The ladder ---------- -->
+        <div class="tab" id="tab-ladder">
+          <p class="small muted" style="margin-top:0">
+            This is the part that makes it a story rather than a list. Every few turns the engine walks
+            this ladder from the top and injects the <b>first</b> beat whose conditions all hold. Rules
+            near the top win; the bottom of the ladder is where the "nothing else applied" beats live.
+          </p>
+          <div class="row" style="margin-bottom:10px">
+            <button data-act="addRule">+ add a rule</button>
+            <button data-act="rulePresets">Add a common rule...</button>
+            <span class="grow"></span>
+            <label class="inline"><input type="checkbox" id="ladderLive"> highlight what would fire right now</label>
+            <button class="primary" data-act="useBuild">Use this and check it</button>
+          </div>
+          <div id="ladderBox"></div>
+          <div id="ladderRaw"></div>
+        </div>
+
+        <!-- ---------- Dry run ---------- -->
+        <div class="tab" id="tab-dry">
+          <p class="small muted" style="margin-top:0">
+            Plays a whole game against the loaded script without you typing anything, so you can see the
+            pacing: how long until the story leaves its early phase, which beats carry it, and which ones
+            never fire at all. Same seed, same run - change the seed to see a different player.
+          </p>
+          <div class="row" style="margin-bottom:10px">
+            <label class="inline">plays like
+              <select id="dryProfile">
+                <option value="explorer">an explorer</option>
+                <option value="romantic">a romantic</option>
+                <option value="questing">a treasure hunter</option>
+                <option value="mixed" selected>a bit of everything</option>
+                <option value="passive">someone who mostly talks</option>
+              </select>
+            </label>
+            <label class="inline">turns <input type="number" id="dryTurns" value="80" min="5" max="600" style="width:78px"></label>
+            <label class="inline">seed <input type="number" id="drySeed" value="1" min="0" max="99999" style="width:78px"></label>
+            <button class="primary" id="btnDry">Run it</button>
+          </div>
+          <div id="drySummary"></div>
+          <div id="dryTable"></div>
+        </div>
+
+        <!-- ---------- Install ---------- -->
+        <div class="tab" id="tab-install">
+          <div id="installBox"></div>
+        </div>
+
+        <!-- ---------- Checks ---------- -->
+        <div class="tab" id="tab-tests">
+          <p class="small muted" style="margin-top:0">
+            Everything that quietly goes wrong in this framework, checked in one press: beats that point
+            at places you renamed, keywords that will fire on the wrong word, rules the ladder can never
+            reach, and a full play-through to prove the whole thing runs.
+          </p>
+          <div class="row" style="margin-bottom:10px">
+            <button class="primary" id="btnTests">Run all checks</button>
+            <span id="testSummary" class="small muted"></span>
+          </div>
+          <div id="testsBox"></div>
+        </div>
+
+        <!-- ---------- Under the hood ---------- -->
+        <div class="tab" id="tab-hood">
+          <h3 class="sec">What the AI is being sent</h3>
+          <p class="small muted" style="margin-top:0">
+            The engine prepends one bracketed line to the whole context, and only on turns where the
+            pacing allows it. This is the last thing it sent.
+          </p>
+          <div id="aiBox"></div>
+
+          <h3 class="sec">The settings story card</h3>
+          <p class="small muted" style="margin-top:0">
+            The engine creates this card by itself on the first turn. Players tune the script by editing
+            it in game - no code. Edit it here and press Apply to test that your values parse.
+          </p>
+          <div id="cardsBox"></div>
+
+          <h3 class="sec">Raw state</h3>
+          <p class="small muted" style="margin-top:0">
+            <span class="mono">state.memory.storyProgression</span> - everything the script remembers
+            between turns.
+          </p>
+          <pre class="entry" id="stateBox"></pre>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =============================================================================
+   A pretend AI Dungeon, small enough to read.
+
+   AI Dungeon hands your script a few globals (state, storyCards, addStoryCard,
+   updateStoryCard, removeStoryCard) and then calls the input / context / output
+   hooks once per turn. Everything below fakes exactly that, so the library file
+   runs here unchanged. No network, no Node, no build step.
+   ============================================================================= */
+
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s)
+  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const att = (s) => esc(s).replace(/"/g, "&quot;");
+const copy = (o) => JSON.parse(JSON.stringify(o));
+const q = (s) => JSON.stringify(String(s == null ? "" : s));
+
+/* A small seedable random number generator, so a dry run with the same seed
+   plays out the same way twice. Sandboxes get one of these in place of the
+   page's Math, which means the script's own Math.random() calls follow it too. */
+function makeRng() {
+  let s = 0, seeded = false;
+  return {
+    seed(n) { s = (n >>> 0) || 1; seeded = true; },
+    free()  { seeded = false; },
+    next()  {
+      if (!seeded) return Math.random();
+      // xorshift32 - short, and good enough to shuffle story beats about
+      s ^= s << 13; s >>>= 0;
+      s ^= s >> 17;
+      s ^= s << 5;  s >>>= 0;
+      return s / 4294967296;
+    },
+    pick(list) { return list[Math.floor(this.next() * list.length)]; },
+    chance(p)  { return this.next() < p; }
+  };
+}
+
+/* Names we try to lift out of a loaded script. Anything missing comes back as
+   null rather than blowing up, so a half-finished file still loads. */
+const PROBE_NAMES = [
+  "StoryProgression", "STORY_CONFIG", "TRIGGERS", "PROGRESSION_CONFIG",
+  "getRichTrigger", "getSequentialTrigger", "getAdaptiveTrigger", "getRandomTrigger",
+  "getSettingsCardEntry", "parseSettings", "applySettings", "findSettingsCard",
+  "ensureSettingsCard", "initializeProgressionState", "updateStoryPhase",
+  "SETTINGS_CARD_TITLE", "SETTINGS_CARD_KEYS", "SETTINGS_MAP", "VALID_STRATEGIES"
+];
+
+function createSandbox(source) {
+  if (/const\s+modifier\s*=/.test(source) && !/STORY_CONFIG/.test(source))
+    throw new Error(
+      "This is one of the three little hook files (input.js / context.js / output.js).\n" +
+      'Load the big LIBRARY file instead: "library.js", or the lighthouse example.');
+
+  const state = {};
+  const storyCards = [];
+  const rng = makeRng();
+
+  function addStoryCard(keys, entry, type) {
+    storyCards.push({
+      id: String(storyCards.length + 1),
+      keys: String(keys == null ? "" : keys),
+      entry: String(entry == null ? "" : entry),
+      type: String(type == null ? "class" : type),
+      title: String(keys == null ? "" : keys),
+      description: ""
+    });
+    return true;
+  }
+  function updateStoryCard(index, keys, entry, type) {
+    const c = storyCards[index];
+    if (!c) return false;
+    c.keys = String(keys == null ? "" : keys);
+    c.entry = String(entry == null ? "" : entry);
+    c.type = String(type == null ? c.type : type);
+    return true;
+  }
+  function removeStoryCard(index) {
+    if (index < 0 || index >= storyCards.length) return false;
+    storyCards.splice(index, 1);
+    return true;
+  }
+
+  const info = { actionCount: 0, characterNames: [], maxChars: 8000, memoryLength: 0 };
+  const history = [];
+  const fakeModule = { exports: {} };
+  const fakeGlobal = {};
+
+  // Math is handed over deliberately: it inherits everything real (min, floor,
+  // ...) but its random() is ours, which is what makes dry runs repeatable.
+  const fakeMath = Object.create(Math);
+  fakeMath.random = () => rng.next();
+
+  const probe = "\n;return {" +
+    PROBE_NAMES.map(n => n + ": (typeof " + n + " !== 'undefined' ? " + n + " : null)").join(", ") +
+    "};";
+
+  let api;
+  try {
+    const factory = new Function(
+      "state", "storyCards", "addStoryCard", "updateStoryCard", "removeStoryCard",
+      "info", "history", "module", "exports", "Math",
+      "globalThis", "window", "self", "document", "location", "fetch", "localStorage",
+      source + probe
+    );
+    api = factory(
+      state, storyCards, addStoryCard, updateStoryCard, removeStoryCard,
+      info, history, fakeModule, fakeModule.exports, fakeMath,
+      fakeGlobal, undefined, undefined, undefined, undefined, undefined, undefined
+    );
+  } catch (e) {
+    throw new Error("That file would not run:\n" + (e && e.message ? e.message : String(e)));
+  }
+
+  if (!api || typeof api.StoryProgression !== "function")
+    throw new Error(
+      "That file ran, but it has no StoryProgression() function in it.\n" +
+      'Load the LIBRARY file ("library.js" or the lighthouse example) - ' +
+      "not input.js, context.js or output.js.");
+  if (!api.STORY_CONFIG)
+    throw new Error("That file has no STORY_CONFIG, so there is no story in it to plan.");
+
+  return { state, storyCards, api, info, history, rng, source };
+}
+
+/* ---------- one turn, exactly as the three hook files do it ---------------- */
+
+// A stand-in for the block of text AI Dungeon assembles each turn. Its exact
+// contents do not matter; what matters is being able to see what the script
+// glued to the front of it.
+const FAKE_CONTEXT =
+  "[Memory: the wreck, the fog, the village that will not talk about either.]\n" +
+  "The story so far continues here.";
+
+const NEUTRAL_AI = "The moment passes. Nothing in particular happens.";
+
+function progressionOf(sb) { return (sb.state.memory && sb.state.memory.storyProgression) || null; }
+
+// aiText may be a string, or a function given the injected beat - the dry run
+// uses the second form so its pretend AI can react to what it was just told.
+function runTurn(sb, playerText, aiText) {
+  const turn = { player: String(playerText == null ? "" : playerText), ai: "" };
+  const before = copy(progressionOf(sb) || {});
+
+  // --- input.js -------------------------------------------------------------
+  sb.api.StoryProgression("input", turn.player);
+
+  // --- context.js -----------------------------------------------------------
+  const out = sb.api.StoryProgression("context", FAKE_CONTEXT);
+  const ctx = (out && typeof out === "object") ? String(out.text) : String(out);
+  turn.injected = "";
+  if (ctx !== FAKE_CONTEXT && ctx.endsWith(FAKE_CONTEXT))
+    turn.injected = ctx.slice(0, ctx.length - FAKE_CONTEXT.length).trim();
+  turn.context = ctx;
+
+  // --- the model would answer here; there is no model in a static page ------
+  const reply = (typeof aiText === "function") ? aiText(turn.injected) : aiText;
+  turn.ai = String(reply == null ? "" : reply).trim() || NEUTRAL_AI;
+
+  // --- output.js ------------------------------------------------------------
+  sb.api.StoryProgression("output", turn.ai);
+
+  // AI Dungeon shows state.message as a system message, then clears it.
+  turn.message = sb.state.message || "";
+  sb.state.message = undefined;
+
+  const after = progressionOf(sb) || {};
+  turn.no = after.totalTurns || 0;
+  turn.phase = after.storyPhase;
+  turn.changes = diffProgression(before, after);
+  return turn;
+}
+
+const NUMERIC_FIELDS = [
+  ["explorationLevel", "exploration"],
+  ["companionBond", "bond"],
+  ["companionIntimacy", "intimacy"],
+  ["primaryCollected", "primary items"],
+  ["secondaryCollected", "secondary items"],
+  ["companionInteractionCount", "companion mentions"],
+  ["emotionalMoments", "emotional moments"]
+];
+
+function diffProgression(a, b) {
+  const out = [];
+  NUMERIC_FIELDS.forEach(([f, label]) => {
+    const d = (b[f] || 0) - (a[f] || 0);
+    if (d) out.push({ kind: d > 0 ? "up" : "down", text: label + " " + (d > 0 ? "+" : "") + d + " (now " + (b[f] || 0) + ")" });
+  });
+  Object.keys(b.visitedLocations || {}).forEach(k => {
+    if (b.visitedLocations[k] && !(a.visitedLocations || {})[k])
+      out.push({ kind: "reach", text: "reached " + k });
+  });
+  Object.keys(b.metCharacters || {}).forEach(k => {
+    if (b.metCharacters[k] && !(a.metCharacters || {})[k])
+      out.push({ kind: "meet", text: "met " + k });
+  });
+  if (a.storyPhase && b.storyPhase !== a.storyPhase)
+    out.push({ kind: "phase", text: "phase " + a.storyPhase + " to " + b.storyPhase });
+  if (b.recentMood !== a.recentMood)
+    out.push({ kind: "mood", text: "mood is now " + b.recentMood });
+  if (b.seekingPrimary && !a.seekingPrimary)
+    out.push({ kind: "seek", text: "now hunting for the primary item" });
+  return out;
+}
+
+/* ---------- reading the loaded script into a plain model ------------------ */
+
+function readModel(sb) {
+  const c = sb.api.STORY_CONFIG || {};
+  return {
+    companionName: c.companionName || "",
+    locations: c.locations || {},
+    characters: Array.isArray(c.characters) ? c.characters : [],
+    collectibles: c.collectibles || {},
+    behaviorKeywords: c.behaviorKeywords || {},
+    moods: c.moods || {},
+    triggers: sb.api.TRIGGERS || {},
+    cfg: sb.api.PROGRESSION_CONFIG || {},
+    richSource: sb.api.getRichTrigger ? String(sb.api.getRichTrigger) : ""
+  };
+}
+
+// The engine half of a library file: everything from the "engine plumbing"
+// banner down. Generated files reuse it verbatim, so the page never carries its
+// own stale copy of the engine.
+function engineTailFrom(src) {
+  const s = String(src || "");
+  const marks = [
+    /^\/\/ =+[\r\n]+\/\/ *Everything below is engine plumbing/m,
+    /^\/\/ =+[\r\n]+\/\/ *Settings Story Card/m,
+    /^const SETTINGS_CARD_KEYS/m
+  ];
+  for (const re of marks) {
+    const m = s.match(re);
+    if (m) return s.slice(m.index);
+  }
+  return null;
+}
+
+/* ---------- the three hook files, which never change ---------------------- */
+
+const HOOKS = {
+  "input.js": [
+    "// ==================================================",
+    "// Input Modifier for Story Progression",
+    "// ==================================================",
+    "",
+    "const modifier = (text) => {",
+    "  // Your other input modifier scripts go here (preferred)",
+    "",
+    "  text = StoryProgression(\"input\", text).text;",
+    "",
+    "  return { text };",
+    "};",
+    "",
+    "modifier(text);"
+  ].join("\n"),
+  "context.js": [
+    "// ==================================================",
+    "// Context Modifier for Story Progression",
+    "// ==================================================",
+    "",
+    "const modifier = (text) => {",
+    "  // Your other context modifier scripts go here (preferred)",
+    "",
+    "  text = StoryProgression(\"context\", text).text;",
+    "",
+    "  return { text };",
+    "};",
+    "",
+    "modifier(text);"
+  ].join("\n"),
+  "output.js": [
+    "// ==================================================",
+    "// Output Modifier for Story Progression",
+    "// ==================================================",
+    "",
+    "const modifier = (text) => {",
+    "  // Your other output modifier scripts go here (preferred)",
+    "",
+    "  text = StoryProgression(\"output\", text).text;",
+    "",
+    "  return { text };",
+    "};",
+    "",
+    "modifier(text);"
+  ].join("\n")
+};
+
+/* =============================================================================
+   THE LADDER
+   getRichTrigger() is a priority ladder: walked top to bottom, first branch
+   whose conditions hold wins. Below is that ladder as data - one rule per rung,
+   each rung a list of conditions and the beat to inject - plus the two
+   directions it travels: rules to JavaScript, and JavaScript back to rules.
+   ============================================================================= */
+
+const IDENT = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const prop = (k) => IDENT.test(String(k)) ? "." + k : "[" + q(k) + "]";
+// object-literal keys: bare when they can be, quoted when they cannot
+const safeKey = (k) => IDENT.test(String(k)) ? String(k) : q(k);
+const beatRef = (b) => {
+  const i = String(b || "").indexOf(".");
+  if (i < 0) return "TRIGGERS" + prop(b);
+  return "TRIGGERS" + prop(String(b).slice(0, i)) + prop(String(b).slice(i + 1));
+};
+const trimNum = (n) => String(Math.round(Number(n) * 100) / 100);
+
+// Everything the engine counts, and what to call it in a sentence.
+const COUNTERS = [
+  ["explorationLevel", "exploration level"],
+  ["companionBond", "companion bond"],
+  ["companionIntimacy", "intimacy (0-10)"],
+  ["primaryCollected", "primary items collected"],
+  ["secondaryCollected", "secondary items collected"],
+  ["turnsSinceLastTrigger", "turns since the last beat"],
+  ["turnsSinceLastIntimacy", "turns since the last intimate beat"],
+  ["totalTurns", "turns played"],
+  ["companionInteractionCount", "times the companion was named"],
+  ["emotionalMoments", "emotional moments"]
+];
+const COUNTER_LABEL = {};
+COUNTERS.forEach(([f, l]) => { COUNTER_LABEL[f] = l; });
+
+const PHASES = ["early", "mid", "late", "endgame"];
+const MOODS = ["neutral", "somber", "hopeful", "tense"];
+
+const COND_KINDS = [
+  ["phase",          "the story phase"],
+  ["visited",        "a place"],
+  ["met",            "a character"],
+  ["mood",           "the mood"],
+  ["num",            "a counter"],
+  ["seeking",        "the player is hunting for the primary item"],
+  ["companion",      "a companion is configured"],
+  ["roomForPrimary", "there is room for another primary item"],
+  ["beat",           "a beat has been used recently"],
+  ["raw",            "...a condition I write myself"]
+];
+
+function newCond(kind, model) {
+  const locs = Object.keys((model && model.locations) || {});
+  const chars = ((model && model.characters) || []);
+  switch (kind) {
+    case "phase":   return { t: "phase", not: false, v: "early" };
+    case "visited": return { t: "visited", not: true, v: locs[0] || "location1" };
+    case "met":     return { t: "met", not: true, v: chars[0] || "Character1" };
+    case "mood":    return { t: "mood", not: false, v: "somber" };
+    case "num":     return { t: "num", f: "explorationLevel", op: ">=", n: 5 };
+    case "seeking": return { t: "seeking", not: false };
+    case "companion": return { t: "companion", not: false };
+    case "roomForPrimary": return { t: "roomForPrimary", not: false };
+    case "beat":    return { t: "beat", not: true, v: "" };
+    default:        return { t: "raw", expr: "progression.totalTurns > 10" };
+  }
+}
+
+/* ---- a condition, as JavaScript ---- */
+
+function condCode(c) {
+  if (!c) return "";
+  switch (c.t) {
+    case "phase":
+      return "progression.storyPhase " + (c.not ? "!==" : "===") + " " + q(c.v);
+    case "visited":
+      return (c.not ? "!" : "") + "progression.visitedLocations" + prop(c.v);
+    case "met":
+      return (c.not ? "!" : "") + "progression.metCharacters" + prop(c.v);
+    case "mood":
+      return "progression.recentMood " + (c.not ? "!==" : "===") + " " + q(c.v);
+    case "num":
+      return "progression." + c.f + " " + c.op + " " + (parseInt(c.n, 10) || 0);
+    case "seeking":
+      return (c.not ? "!" : "") + "progression.seekingPrimary";
+    case "companion":
+      return (c.not ? "!" : "") + "STORY_CONFIG.companionName";
+    case "roomForPrimary":
+      return c.not
+        ? "progression.primaryCollected >= PROGRESSION_CONFIG.maxPrimaryCollectibles"
+        : "progression.primaryCollected < PROGRESSION_CONFIG.maxPrimaryCollectibles";
+    case "beat":
+      if (!c.v) return "";
+      return (c.not ? "!" : "") + "progression.triggerHistory.includes(" + beatRef(c.v) + ")";
+    case "raw":
+      return String(c.expr || "").trim();
+  }
+  return "";
+}
+
+/* ---- a condition, as a sentence ---- */
+
+function placeName(key, model) {
+  const l = (model && model.locations && model.locations[key]) || null;
+  const kw = l && Array.isArray(l.keywords) ? l.keywords[0] : null;
+  return kw ? key + " (the " + kw + ")" : key;
+}
+
+function condText(c, model) {
+  if (!c) return "";
+  switch (c.t) {
+    case "phase":
+      return c.not ? "the story is not in its " + c.v + " phase"
+                   : "the story is in its " + c.v + " phase";
+    case "visited":
+      return c.not ? "the player has not reached " + placeName(c.v, model) + " yet"
+                   : "the player has already reached " + placeName(c.v, model);
+    case "met":
+      return c.not ? c.v + " has not turned up yet" : c.v + " has already turned up";
+    case "mood":
+      return c.not ? "the mood is not " + c.v : "the mood is " + c.v;
+    case "num": {
+      const label = COUNTER_LABEL[c.f] || c.f;
+      const n = parseInt(c.n, 10) || 0;
+      const words = { ">=": "is " + n + " or more", ">": "is over " + n,
+                      "<=": "is " + n + " or less", "<": "is under " + n,
+                      "===": "is exactly " + n, "!==": "is anything but " + n };
+      return label + " " + (words[c.op] || (c.op + " " + n));
+    }
+    case "seeking":
+      return c.not ? "the player has not said they are hunting for the primary item"
+                   : "the player has said they are hunting for the primary item";
+    case "companion":
+      return c.not ? "there is no companion configured" : "a companion is configured";
+    case "roomForPrimary":
+      return c.not ? "the player already has every primary item"
+                   : "there is still room for another primary item";
+    case "beat":
+      return (c.not ? "the beat " : "the beat ") + (c.v || "?") +
+             (c.not ? " has not been used in the last ten" : " has been used in the last ten");
+    case "raw":
+      return "this holds: " + String(c.expr || "").trim();
+  }
+  return "";
+}
+
+function ruleText(r, model) {
+  const parts = (r.conds || []).map(c => condText(c, model)).filter(Boolean);
+  if (r.chance != null && r.chance < 1) parts.push("a " + Math.round(r.chance * 100) + "% coin flip goes its way");
+  const when = parts.length ? parts.join(", and ") : "nothing else has fired above";
+  return "When " + when + " - send this beat.";
+}
+
+/* ---- the whole ladder, as JavaScript ---- */
+
+function ruleCode(r, indent) {
+  const pad = indent || "  ";
+  const L = [];
+  const parts = (r.conds || []).map(condCode).filter(Boolean);
+  if (r.chance != null && r.chance < 1) parts.push("Math.random() < " + trimNum(r.chance));
+  if (r.note) L.push(pad + "// " + String(r.note).replace(/[\r\n]+/g, " "));
+  if (!parts.length) {
+    L.push(pad + "return " + beatRef(r.beat) + ";");
+    return L.join("\n");
+  }
+  const oneLine = pad + "if (" + parts.join(" && ") + ") {";
+  if (oneLine.length <= 112) {
+    L.push(oneLine);
+  } else {
+    L.push(pad + "if (" + parts[0] + " &&");
+    for (let i = 1; i < parts.length - 1; i++) L.push(pad + "    " + parts[i] + " &&");
+    L.push(pad + "    " + parts[parts.length - 1] + ") {");
+  }
+  L.push(pad + "  return " + beatRef(r.beat) + ";");
+  L.push(pad + "}");
+  return L.join("\n");
+}
+
+function ladderCode(rules) {
+  const L = ["function getRichTrigger(progression) {"];
+  const on = (rules || []).filter(r => r.on !== false && r.beat);
+  if (!on.length) L.push("  // (no rules yet - nothing will ever be injected)");
+  on.forEach(r => { L.push(ruleCode(r, "  ")); L.push(""); });
+  L.push("  return null;");
+  L.push("}");
+  return L.join("\n");
+}
+
+/* =============================================================================
+   Reading an existing getRichTrigger() back into rules.
+
+   The shipped function, and every function this page writes, is nothing but
+   nested ifs and returns. That is regular enough to walk with a small scanner.
+   Anything it does not recognise inside a condition survives as a "raw"
+   condition holding the original JavaScript, so a round trip changes nothing.
+   Anything it cannot walk at all (an else, a loop, a local variable) makes it
+   give up honestly, and the page then keeps the author's function verbatim.
+   ============================================================================= */
+
+function skipString(s, i) {
+  const qc = s[i];
+  i++;
+  while (i < s.length) {
+    if (s[i] === "\\") { i += 2; continue; }
+    if (s[i] === qc) return i + 1;
+    i++;
+  }
+  return i;
+}
+
+// s[i] must be "(" or "{"; returns the index just past its partner.
+function scanBalanced(s, i) {
+  const open = s[i], close = open === "(" ? ")" : "}";
+  let depth = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === "'" || ch === '"' || ch === "`") { i = skipString(s, i); continue; }
+    if (ch === "/" && s[i + 1] === "/") { while (i < s.length && s[i] !== "\n") i++; continue; }
+    if (ch === "/" && s[i + 1] === "*") { const e = s.indexOf("*/", i + 2); i = e < 0 ? s.length : e + 2; continue; }
+    if (ch === open) depth++;
+    else if (ch === close) { depth--; if (!depth) return i + 1; }
+    i++;
+  }
+  return -1;
+}
+
+// Split "a && b && c" at the top level only, leaving strings and brackets alone.
+function splitTop(expr, op) {
+  const out = [];
+  let depth = 0, last = 0, i = 0;
+  while (i < expr.length) {
+    const ch = expr[i];
+    if (ch === "'" || ch === '"' || ch === "`") { i = skipString(expr, i); continue; }
+    if (ch === "(" || ch === "[") depth++;
+    else if (ch === ")" || ch === "]") depth--;
+    else if (!depth && expr.substr(i, op.length) === op) {
+      out.push(expr.slice(last, i));
+      i += op.length; last = i; continue;
+    }
+    i++;
+  }
+  out.push(expr.slice(last));
+  return out.map(s => s.trim()).filter(Boolean);
+}
+
+function unwrap(e) {
+  let s = String(e || "").trim();
+  while (s.startsWith("(") && scanBalanced(s, 0) === s.length) s = s.slice(1, -1).trim();
+  return s;
+}
+
+const COND_PATTERNS = [
+  [/^progression\.storyPhase\s*(===|==|!==|!=)\s*['"]([\w]+)['"]$/,
+    m => ({ t: "phase", not: m[1][0] === "!", v: m[2] })],
+  [/^(!?)progression\.visitedLocations(?:\.([\w$]+)|\[['"]([^'"]+)['"]\])$/,
+    m => ({ t: "visited", not: m[1] === "!", v: m[2] || m[3] })],
+  [/^(!?)progression\.metCharacters(?:\.([\w$]+)|\[['"]([^'"]+)['"]\])$/,
+    m => ({ t: "met", not: m[1] === "!", v: m[2] || m[3] })],
+  [/^progression\.recentMood\s*(===|==|!==|!=)\s*['"]([\w]+)['"]$/,
+    m => ({ t: "mood", not: m[1][0] === "!", v: m[2] })],
+  [/^progression\.primaryCollected\s*<\s*PROGRESSION_CONFIG\.maxPrimaryCollectibles$/,
+    () => ({ t: "roomForPrimary", not: false })],
+  [/^progression\.primaryCollected\s*>=\s*PROGRESSION_CONFIG\.maxPrimaryCollectibles$/,
+    () => ({ t: "roomForPrimary", not: true })],
+  [/^(!?)progression\.seekingPrimary$/,
+    m => ({ t: "seeking", not: m[1] === "!" })],
+  [/^(!?)STORY_CONFIG\.companionName$/,
+    m => ({ t: "companion", not: m[1] === "!" })],
+  [/^(!?)progression\.triggerHistory\.includes\(TRIGGERS\.([\w$]+)\.([\w$]+)\)$/,
+    m => ({ t: "beat", not: m[1] === "!", v: m[2] + "." + m[3] })],
+  [/^progression\.([\w$]+)\s*(>=|<=|>|<|===|!==)\s*(-?\d+)$/,
+    m => ({ t: "num", f: m[1], op: m[2], n: parseInt(m[3], 10) })]
+];
+
+const CHANCE_RE = /^Math\.random\(\)\s*<\s*([0-9.]+)$/;
+
+function parseCondition(expr) {
+  const e = unwrap(expr);
+  for (const [re, make] of COND_PATTERNS) {
+    const m = e.match(re);
+    if (m) return make(m);
+  }
+  return { t: "raw", expr: e };
+}
+
+// "a && b && Math.random() < 0.3" -> { conds:[a, b], chance:0.3 }
+function parseTest(expr) {
+  const e = unwrap(expr);
+  if (splitTop(e, "||").length > 1) return { conds: [{ t: "raw", expr: e }], chance: 1 };
+  let chance = 1;
+  const conds = [];
+  splitTop(e, "&&").forEach(part => {
+    const p = unwrap(part);
+    const cm = p.match(CHANCE_RE);
+    if (cm) { chance = Math.min(chance, parseFloat(cm[1])); return; }
+    conds.push(parseCondition(p));
+  });
+  return { conds: conds, chance: chance };
+}
+
+const BAIL_WORDS = /^(else|for|while|switch|do|try|function|const|let|var|throw)\b/;
+
+function parseLadder(fnSource) {
+  const src = String(fnSource || "");
+  const paren = src.indexOf("(");
+  if (paren < 0) return null;
+  const open = src.indexOf("{", scanBalanced(src, paren));
+  if (open < 0) return null;
+  const close = scanBalanced(src, open);
+  if (close < 0) return null;
+  const body = src.slice(open + 1, close - 1);
+
+  const rules = [];
+  const stack = [];
+  let i = 0, note = "", guard = 0;
+
+  while (i < body.length) {
+    if (guard++ > 100000) return null;
+    while (stack.length && i >= stack[stack.length - 1].end) stack.pop();
+    const ch = body[i];
+
+    if (ch === " " || ch === "\t" || ch === "\r" || ch === "\n" || ch === ";") { i++; continue; }
+    if (ch === "/" && body[i + 1] === "/") {
+      const nl = body.indexOf("\n", i);
+      const line = body.slice(i + 2, nl < 0 ? body.length : nl).trim();
+      if (line && !/^-|^=/.test(line)) note = note ? note + " " + line : line;
+      i = nl < 0 ? body.length : nl + 1;
+      continue;
+    }
+    if (ch === "/" && body[i + 1] === "*") {
+      const e = body.indexOf("*/", i + 2);
+      i = e < 0 ? body.length : e + 2;
+      continue;
+    }
+    if (ch === "}") { i++; continue; }
+
+    if (/^if\b/.test(body.slice(i, i + 3))) {
+      const p = body.indexOf("(", i);
+      if (p < 0) return null;
+      const pEnd = scanBalanced(body, p);
+      if (pEnd < 0) return null;
+      const test = parseTest(body.slice(p + 1, pEnd - 1));
+      let j = pEnd;
+      while (j < body.length && /\s/.test(body[j])) j++;
+      if (body[j] === "{") {
+        const bEnd = scanBalanced(body, j);
+        if (bEnd < 0) return null;
+        stack.push({ conds: test.conds, chance: test.chance, end: bEnd, note: note });
+        note = "";
+        i = j + 1;
+        continue;
+      }
+      // one-line "if (...) return TRIGGERS.a.b;"
+      const semi = body.indexOf(";", j);
+      const stmt = body.slice(j, semi < 0 ? body.length : semi).trim();
+      const beat = stmt.match(/^return\s+TRIGGERS\.([\w$]+)\.([\w$]+)$/);
+      if (beat) {
+        rules.push(makeRule(stack, test, beat, note));
+        note = "";
+      } else if (!/^return\s+null$/.test(stmt)) {
+        return null;
+      }
+      i = semi < 0 ? body.length : semi + 1;
+      continue;
+    }
+
+    if (/^return\b/.test(body.slice(i, i + 7))) {
+      const semi = body.indexOf(";", i);
+      const stmt = body.slice(i, semi < 0 ? body.length : semi).trim();
+      const beat = stmt.match(/^return\s+TRIGGERS\.([\w$]+)\.([\w$]+)$/);
+      if (beat) {
+        rules.push(makeRule(stack, { conds: [], chance: 1 }, beat, note));
+        note = "";
+      } else if (!/^return\s+null$/.test(stmt)) {
+        return null;
+      }
+      i = semi < 0 ? body.length : semi + 1;
+      continue;
+    }
+
+    if (BAIL_WORDS.test(body.slice(i, i + 12))) return null;
+    i++;
+  }
+
+  function makeRule(stk, test, beat, noteText) {
+    const outer = stk.reduce((a, f) => a.concat(f.conds), []);
+    const outerNote = stk.map(f => f.note).filter(Boolean).join(" ");
+    const chance = stk.reduce((a, f) => a * f.chance, 1) * test.chance;
+    return {
+      on: true,
+      note: (noteText || outerNote || "").slice(0, 120),
+      conds: outer.concat(test.conds),
+      chance: Math.round(chance * 1000) / 1000,
+      beat: beat[1] + "." + beat[2]
+    };
+  }
+
+  return rules.length ? rules : null;
+}
+
+/* =============================================================================
+   PLAN & BUILD
+   A form over the whole of sections 1-3, which writes the finished library.js:
+   your story, your beats, your ladder, and then the ENGINE section copied
+   unchanged out of whichever script is loaded.
+   ============================================================================= */
+
+let B = null;           // the builder model
+let SOURCE = "";        // the raw text of the loaded script
+let sb = null;          // the live sandbox
+let MODEL = null;       // what the loaded script says about itself
+let LOG = [];           // turn log
+
+// Categories the engine itself reaches into. They are always written out, even
+// when empty, because handleContextModifier() and getSequentialTrigger() read
+// TRIGGERS.relationship and TRIGGERS.location without checking first.
+const REQUIRED_CATEGORIES = ["location", "relationship"];
+const KNOWN_CATEGORIES = ["location", "exploration", "relationship", "quest", "character", "emotional"];
+
+const CFG_FIELDS = [
+  ["minTurnsBetweenTriggers", "Trigger pacing", "number",
+   "Turns the engine waits before it is allowed to inject again. Lower = pushier story."],
+  ["explorationThresholdForFirstLocation", "First location after", "number",
+   "Only used by the Sequential and Adaptive strategies."],
+  ["explorationThresholdForSecondLocation", "Second location after", "number",
+   "Only used by the Sequential and Adaptive strategies."],
+  ["maxPrimaryCollectibles", "Max primary items", "number", "The engine stops counting past this."],
+  ["maxSecondaryCollectibles", "Max secondary items", "number", "Written to the settings card."],
+  ["strategy", "Strategy", "strategy", "Rich is the ladder you build on the next tab."],
+  ["debugMode", "Debug mode", "bool", "Shows a live metrics line in game."],
+  ["pinSettingsCard", "Pin the settings card", "bool", "Keeps it at the top of the card list."]
+];
+
+function emptyBuilder() {
+  return {
+    companionName: "",
+    locations: [],
+    characters: [],
+    collectibles: {
+      primary:   { name: "PrimaryItem",   keywords: [], max: 7,  bondBonus: 3 },
+      secondary: { name: "SecondaryItem", keywords: [], max: 10, bondBonus: 2 }
+    },
+    behaviorKeywords: { exploration: [], intimacy: [], memory: [], seeking: [] },
+    moods: { somber: [], hopeful: [], tense: [] },
+    triggers: [],
+    cfg: {
+      minTurnsBetweenTriggers: 3, debugMode: false,
+      explorationThresholdForFirstLocation: 2, explorationThresholdForSecondLocation: 5,
+      maxPrimaryCollectibles: 7, maxSecondaryCollectibles: 10,
+      strategy: "rich", pinSettingsCard: true
+    },
+    rules: [],
+    rawLadder: null
+  };
+}
+
+function builderFromModel(m) {
+  const b = emptyBuilder();
+  b.companionName = m.companionName || "";
+
+  Object.keys(m.locations || {}).forEach(key => {
+    const l = m.locations[key] || {};
+    b.locations.push({
+      key: key,
+      keywords: Array.isArray(l.keywords) ? l.keywords.slice() : [],
+      bondBonus: Number(l.bondBonus) || 0,
+      explorationBonus: Number(l.explorationBonus) || 0,
+      moodOnArrival: l.moodOnArrival || "",
+      intimacyBonus: Number(l.intimacyBonus) || 0
+    });
+  });
+
+  b.characters = (m.characters || []).slice();
+
+  ["primary", "secondary"].forEach(slot => {
+    const c = (m.collectibles || {})[slot];
+    if (!c) return;
+    b.collectibles[slot] = {
+      name: c.name || "", keywords: Array.isArray(c.keywords) ? c.keywords.slice() : [],
+      max: Number(c.max) || 0, bondBonus: Number(c.bondBonus) || 0
+    };
+  });
+
+  Object.keys(b.behaviorKeywords).forEach(k => {
+    const v = (m.behaviorKeywords || {})[k];
+    if (Array.isArray(v)) b.behaviorKeywords[k] = v.slice();
+  });
+  Object.keys(m.behaviorKeywords || {}).forEach(k => {
+    if (!b.behaviorKeywords[k]) b.behaviorKeywords[k] = (m.behaviorKeywords[k] || []).slice();
+  });
+
+  b.moods = {};
+  Object.keys(m.moods || {}).forEach(k => { b.moods[k] = (m.moods[k] || []).slice(); });
+  if (!Object.keys(b.moods).length) b.moods = { somber: [], hopeful: [], tense: [] };
+
+  Object.keys(m.triggers || {}).forEach(cat => {
+    const group = m.triggers[cat] || {};
+    Object.keys(group).forEach(key => b.triggers.push({ cat: cat, key: key, text: String(group[key]) }));
+  });
+
+  Object.keys(b.cfg).forEach(k => {
+    if ((m.cfg || {})[k] !== undefined) b.cfg[k] = m.cfg[k];
+  });
+
+  const parsed = parseLadder(m.richSource);
+  if (parsed) { b.rules = parsed; b.rawLadder = null; }
+  else { b.rules = []; b.rawLadder = m.richSource || null; }
+
+  return b;
+}
+
+/* ---- writing the file ---------------------------------------------------- */
+
+function generateStoryConfig(b) {
+  const L = [];
+  L.push("const STORY_CONFIG = {");
+  L.push("  // Leave this as '' if your story has no companion - the engine then");
+  L.push("  // skips every relationship counter.");
+  L.push("  companionName: " + q(b.companionName) + ",");
+  L.push("");
+  L.push("  // Places. The keys are the handles section 3 asks about; the keywords are");
+  L.push("  // matched against what the AI writes.");
+  L.push("  locations: {");
+  b.locations.forEach((l, i) => {
+    const bits = ["keywords: [" + (l.keywords || []).map(q).join(", ") + "]"];
+    if (Number(l.bondBonus))        bits.push("bondBonus: " + Number(l.bondBonus));
+    if (Number(l.explorationBonus)) bits.push("explorationBonus: " + Number(l.explorationBonus));
+    if (l.moodOnArrival)            bits.push("moodOnArrival: " + q(l.moodOnArrival));
+    if (Number(l.intimacyBonus))    bits.push("intimacyBonus: " + Number(l.intimacyBonus));
+    const line = "    " + safeKey(l.key) + ": { " + bits.join(", ") + " }";
+    L.push(line + (i < b.locations.length - 1 ? "," : ""));
+  });
+  L.push("  },");
+  L.push("");
+  L.push("  // Names watched for in the AI's text. First appearance counts as met.");
+  L.push("  characters: [" + b.characters.map(q).join(", ") + "],");
+  L.push("");
+  L.push("  collectibles: {");
+  ["primary", "secondary"].forEach((slot, i) => {
+    const c = b.collectibles[slot] || {};
+    L.push("    " + slot + ": {");
+    L.push("      name: " + q(c.name) + ",");
+    L.push("      keywords: [" + (c.keywords || []).map(q).join(", ") + "],");
+    L.push("      max: " + (Number(c.max) || 0) + ",");
+    L.push("      bondBonus: " + (Number(c.bondBonus) || 0));
+    L.push("    }" + (i === 0 ? "," : ""));
+  });
+  L.push("  },");
+  L.push("");
+  L.push("  // These are matched against what the PLAYER types, not the AI.");
+  L.push("  behaviorKeywords: {");
+  const bk = Object.keys(b.behaviorKeywords);
+  bk.forEach((k, i) => {
+    L.push("    " + safeKey(k) + ": [" + (b.behaviorKeywords[k] || []).map(q).join(", ") + "]" +
+      (i < bk.length - 1 ? "," : ""));
+  });
+  L.push("  },");
+  L.push("");
+  L.push("  // Mood words, also read from the player's typing.");
+  L.push("  moods: {");
+  const mk = Object.keys(b.moods);
+  mk.forEach((k, i) => {
+    L.push("    " + safeKey(k) + ": [" + (b.moods[k] || []).map(q).join(", ") + "]" + (i < mk.length - 1 ? "," : ""));
+  });
+  L.push("  }");
+  L.push("};");
+  return L.join("\n");
+}
+
+function triggersByCategory(b) {
+  const out = {};
+  (b.triggers || []).forEach(t => {
+    if (!t.key) return;
+    (out[t.cat] = out[t.cat] || {})[t.key] = t.text;
+  });
+  REQUIRED_CATEGORIES.forEach(c => { if (!out[c]) out[c] = {}; });
+  return out;
+}
+
+function generateTriggers(b) {
+  const byCat = triggersByCategory(b);
+  const cats = KNOWN_CATEGORIES.filter(c => byCat[c])
+    .concat(Object.keys(byCat).filter(c => KNOWN_CATEGORIES.indexOf(c) < 0));
+  const L = ["const TRIGGERS = {"];
+  cats.forEach((cat, ci) => {
+    const keys = Object.keys(byCat[cat]);
+    if (!keys.length) {
+      L.push("  " + safeKey(cat) + ": {}" + (ci < cats.length - 1 ? "," : ""));
+      return;
+    }
+    L.push("  " + safeKey(cat) + ": {");
+    keys.forEach((k, i) => L.push("    " + safeKey(k) + ": " + q(byCat[cat][k]) + (i < keys.length - 1 ? "," : "")));
+    L.push("  }" + (ci < cats.length - 1 ? "," : ""));
+  });
+  L.push("};");
+  return L.join("\n");
+}
+
+function generateProgressionConfig(b) {
+  const c = b.cfg;
+  return [
+    "const PROGRESSION_CONFIG = {",
+    "  minTurnsBetweenTriggers: " + (parseInt(c.minTurnsBetweenTriggers, 10) || 0) + ",",
+    "  debugMode: " + (c.debugMode ? "true" : "false") + ",",
+    "  explorationThresholdForFirstLocation: " + (parseInt(c.explorationThresholdForFirstLocation, 10) || 0) + ",",
+    "  explorationThresholdForSecondLocation: " + (parseInt(c.explorationThresholdForSecondLocation, 10) || 0) + ",",
+    "  maxPrimaryCollectibles: " + (parseInt(c.maxPrimaryCollectibles, 10) || 0) + ",",
+    "  maxSecondaryCollectibles: " + (parseInt(c.maxSecondaryCollectibles, 10) || 0) + ",",
+    "  strategy: " + q(c.strategy || "rich") + ",",
+    "  pinSettingsCard: " + (c.pinSettingsCard ? "true" : "false"),
+    "};"
+  ].join("\n");
+}
+
+const BANNER = (n, title) => [
+  "// ==================================================",
+  "// " + (n ? "(" + n + " of 3): " : "") + title,
+  "// =================================================="
+].join("\n");
+
+function generateHead(b) {
+  return [
+    "// ==================================================",
+    "// Story Progression Framework - built in the planner",
+    "// ==================================================",
+    "// Paste this whole file into the LIBRARY tab in AI Dungeon.",
+    "// input.js, context.js and output.js go in unchanged.",
+    "//",
+    "// Everything above the \"engine plumbing\" banner is your story; everything",
+    "// below it is the engine, copied unchanged from the script this was built on.",
+    "",
+    BANNER(1, "Story Configuration - what exists"),
+    "",
+    generateStoryConfig(b),
+    "",
+    BANNER(2, "Trigger Definitions - what the AI is told"),
+    "// Each one is a stage direction. AI Dungeon reads bracketed lines as",
+    "// instructions, so they steer the scene without being narrated.",
+    "",
+    generateTriggers(b),
+    "",
+    "// ==================================================",
+    "// CONFIGURATION (defaults; players override these via the settings card)",
+    "// ==================================================",
+    "",
+    generateProgressionConfig(b),
+    "",
+    BANNER(3, "Rich Trigger Logic - the wiring"),
+    "// A priority ladder. On every eligible turn it is walked from the top and",
+    "// the FIRST branch whose conditions hold returns the beat to inject.",
+    "",
+    b.rawLadder ? String(b.rawLadder) : ladderCode(b.rules)
+  ].join("\n");
+}
+
+function generateSource(b) {
+  const tail = engineTailFrom(SOURCE);
+  if (!tail) return null;
+  // the loaded file may be CRLF while everything written here is LF; settle on one
+  return (generateHead(b) + "\n\n" + tail).replace(/\r\n/g, "\n");
+}
+
+const ENGINE_PLACEHOLDER =
+  "\n\n// ==================================================\n" +
+  "// Everything below is engine plumbing - most authors never touch it.\n" +
+  "// ==================================================\n" +
+  "//\n" +
+  "// (about 470 lines, copied unchanged from the script you loaded - the Copy\n" +
+  "//  and Download buttons above give you the whole thing)\n";
+
+/* ---- the build form ------------------------------------------------------ */
+
+function fieldsFor(pathPrefix, obj, spec) {
+  return spec.map(([key, label, type, hint]) => {
+    const path = pathPrefix + "." + key;
+    const v = obj[key];
+    let input;
+    if (type === "bool") {
+      return '<label class="inline" style="align-self:end;padding-bottom:6px" title="' + att(hint || "") +
+        '"><input type="checkbox" data-b="' + att(path) + '"' + (v ? " checked" : "") + "> " +
+        esc(label) + "</label>";
+    }
+    if (type === "strategy") {
+      input = '<select data-b="' + att(path) + '">' +
+        ["rich", "sequential", "adaptive", "random"].map(s =>
+          '<option value="' + s + '"' + (v === s ? " selected" : "") + ">" + s + "</option>").join("") +
+        "</select>";
+    } else {
+      input = '<input type="' + (type === "number" ? "number" : "text") + '" data-b="' + att(path) +
+        '" data-type="' + (type === "number" ? "number" : "text") + '" value="' + att(v) + '">';
+    }
+    return '<label title="' + att(hint || "") + '">' + esc(label) + input + "</label>";
+  }).join("");
+}
+
+function locationRow(l, i) {
+  const moods = [""].concat(Object.keys(B.moods));
+  return '<div class="card tight">' +
+    '<div class="row" style="margin-bottom:6px">' +
+      '<input type="text" data-b="locations.' + i + '.key" data-rerender="1" value="' + att(l.key) +
+        '" style="width:150px" placeholder="location1" title="the handle the ladder uses">' +
+      '<input type="text" class="grow" data-b="locations.' + i + '.keywords" data-type="list" ' +
+        'value="' + att((l.keywords || []).join(", ")) + '" placeholder="words the AI will write, comma separated">' +
+      '<button class="tiny" data-act="delLoc" data-i="' + i + '" title="delete">&times;</button>' +
+    "</div>" +
+    '<div class="fields">' +
+      '<label>bond on arrival<input type="number" data-type="number" data-b="locations.' + i + '.bondBonus" value="' + att(l.bondBonus) + '"></label>' +
+      '<label>exploration on arrival<input type="number" data-type="number" data-b="locations.' + i + '.explorationBonus" value="' + att(l.explorationBonus) + '"></label>' +
+      '<label>intimacy on arrival<input type="number" data-type="number" data-b="locations.' + i + '.intimacyBonus" value="' + att(l.intimacyBonus) + '"></label>' +
+      '<label>mood on arrival<select data-b="locations.' + i + '.moodOnArrival">' +
+        moods.map(m => '<option value="' + att(m) + '"' + (l.moodOnArrival === m ? " selected" : "") + ">" +
+          (m || "(leave it alone)") + "</option>").join("") + "</select></label>" +
+    "</div>" +
+    '<div class="genline">' + esc(describeLocation(l)) + "</div>" +
+  "</div>";
+}
+
+function describeLocation(l) {
+  const kw = (l.keywords || []).filter(Boolean);
+  if (!kw.length) return "no keywords - this place can never be reached";
+  const rewards = [];
+  if (Number(l.bondBonus)) rewards.push("bond +" + Number(l.bondBonus));
+  if (Number(l.explorationBonus)) rewards.push("exploration +" + Number(l.explorationBonus));
+  if (Number(l.intimacyBonus)) rewards.push("intimacy +" + Number(l.intimacyBonus));
+  if (l.moodOnArrival) rewards.push("mood becomes " + l.moodOnArrival);
+  return "The first time the AI writes " + kw.map(k => '"' + k + '"').join(" or ") +
+    ", the player has been here" + (rewards.length ? " - " + rewards.join(", ") : "") + ".";
+}
+
+function listEditor(path, values, placeholder, rerender) {
+  return '<input type="text" class="grow" data-b="' + att(path) + '" data-type="list"' +
+    (rerender ? ' data-rerender="1"' : "") + ' value="' +
+    att((values || []).join(", ")) + '" placeholder="' + att(placeholder || "comma separated") + '">';
+}
+
+function beatRow(t, i) {
+  const cats = KNOWN_CATEGORIES.slice();
+  if (cats.indexOf(t.cat) < 0) cats.push(t.cat);
+  const used = usageOfBeat(t.cat + "." + t.key);
+  return '<div class="card tight">' +
+    '<div class="row" style="margin-bottom:6px">' +
+      '<select data-b="triggers.' + i + '.cat" data-rerender="1" style="width:130px">' +
+        cats.map(c => '<option value="' + att(c) + '"' + (t.cat === c ? " selected" : "") + ">" + esc(c) + "</option>").join("") +
+      "</select>" +
+      '<input type="text" data-b="triggers.' + i + '.key" data-rerender="1" value="' + att(t.key) +
+        '" style="width:130px" placeholder="loc1">' +
+      (used ? '<span class="chip on">used by rule ' + used + "</span>"
+            : '<span class="chip warn">no rule sends this</span>') +
+      '<span class="grow"></span>' +
+      '<button class="tiny" data-act="delBeat" data-i="' + i + '" title="delete">&times;</button>' +
+    "</div>" +
+    '<input type="text" style="width:100%" data-b="triggers.' + i + '.text" value="' + att(t.text) +
+      '" placeholder="[Tell the AI what to do]">' +
+    (/^\s*\[.*\]\s*$/.test(t.text || "") ? "" :
+      '<div class="genline"><span class="chip warn">note</span> beats work best wrapped in [square brackets] - ' +
+      "AI Dungeon then treats them as instructions instead of story text</div>") +
+  "</div>";
+}
+
+function usageOfBeat(beat) {
+  const hits = [];
+  (B.rules || []).forEach((r, i) => { if (r.beat === beat && r.on !== false) hits.push(i + 1); });
+  return hits.length ? hits.join(", ") : null;
+}
+
+function renderBuild() {
+  if (!B) return;
+  const h = [];
+
+  h.push('<div class="card"><h3 class="sec"><span class="n">1.</span> The basics</h3>' +
+    '<div class="fields">' +
+      '<label>Companion name (blank for none)<input type="text" data-b="companionName" value="' +
+        att(B.companionName) + '" placeholder="Wren"></label>' +
+      fieldsFor("cfg", B.cfg, CFG_FIELDS) +
+    "</div>" +
+    '<p class="plain">These are only the <b>defaults</b>. The engine writes a "Progression Settings" ' +
+    "story card into the adventure on the first turn, and whatever the player types on that card wins " +
+    "from then on.</p></div>");
+
+  h.push('<div class="card"><h3 class="sec"><span class="n">2.</span> Places</h3>' +
+    '<p class="plain" style="margin-top:0">A place is reached the moment the AI writes one of its keywords. ' +
+    "Pick words the AI will actually use, and keep them long enough not to fire by accident.</p>" +
+    B.locations.map(locationRow).join("") +
+    '<div class="quick"><button data-act="addLoc">+ add a place</button></div></div>');
+
+  h.push('<div class="card"><h3 class="sec"><span class="n">3.</span> People</h3>' +
+    '<p class="plain" style="margin-top:0">One name per entry. A character counts as met the first time ' +
+    "the AI writes their name.</p>" +
+    '<div class="row">' + listEditor("characters", B.characters, "Halloran, Sable, Muirin", true) + "</div>" +
+    (B.characters.some(c => String(c).length < 4)
+      ? '<div class="genline"><span class="chip warn">note</span> short names match inside other words - ' +
+        '"Ash" also matches "ashes"</div>' : "") +
+    "</div>");
+
+  h.push('<div class="card"><h3 class="sec"><span class="n">4.</span> Things to collect</h3>' +
+    '<div class="split">' +
+    ["primary", "secondary"].map(slot => {
+      const c = B.collectibles[slot];
+      return "<div>" +
+        '<div class="row" style="margin-bottom:6px"><b>' + slot + "</b>" +
+        (slot === "secondary" ? '<span class="chip warn">the engine never counts these</span>' : "") + "</div>" +
+        '<div class="fields">' +
+        '<label>name<input type="text" data-b="collectibles.' + slot + '.name" value="' + att(c.name) + '"></label>' +
+        '<label>max<input type="number" data-type="number" data-b="collectibles.' + slot + '.max" value="' + att(c.max) + '"></label>' +
+        '<label>bond each<input type="number" data-type="number" data-b="collectibles.' + slot + '.bondBonus" value="' + att(c.bondBonus) + '"></label>' +
+        "</div>" +
+        '<div class="row" style="margin-top:6px">' + listEditor("collectibles." + slot + ".keywords", c.keywords, "journal page, torn page") + "</div>" +
+        "</div>";
+    }).join("") + "</div>" +
+    '<p class="plain">The <b>primary</b> item is the one the engine counts, and reaching 5 of them tips ' +
+    "the story into its endgame. The <b>secondary</b> one is written into the config and read by nobody: " +
+    "the shipped output modifier only counts primaries. Use it for flavour, or wire it up yourself.</p></div>");
+
+  h.push('<div class="card"><h3 class="sec"><span class="n">5.</span> Words that mean something</h3>' +
+    '<p class="plain" style="margin-top:0">These are matched against <b>what the player types</b>, and they ' +
+    "are how the engine works out what kind of turn this was.</p>" +
+    '<div class="fields" style="grid-template-columns:1fr">' +
+    Object.keys(B.behaviorKeywords).map(k =>
+      "<label>" + esc(k) + listEditor("behaviorKeywords." + k, B.behaviorKeywords[k]) + "</label>").join("") +
+    "</div><h3 class=\"sec\" style=\"margin-top:12px\">Moods</h3>" +
+    '<div class="fields" style="grid-template-columns:1fr">' +
+    Object.keys(B.moods).map(k =>
+      "<label>" + esc(k) + listEditor("moods." + k, B.moods[k], "", true) + "</label>").join("") +
+    "</div></div>");
+
+  h.push('<div class="card"><h3 class="sec"><span class="n">6.</span> Beats</h3>' +
+    '<p class="plain" style="margin-top:0">The lines the engine can send the AI. Writing one here does ' +
+    "nothing on its own - a rule on the next tab has to send it.</p>" +
+    B.triggers.map(beatRow).join("") +
+    '<div class="quick"><button data-act="addBeat">+ add a beat</button></div></div>');
+
+  h.push('<div class="card"><h3 class="sec"><span class="n">7.</span> The finished file</h3>' +
+    '<div class="row" style="margin-bottom:8px">' +
+      '<button class="primary" data-act="useBuild">Use this and check it</button>' +
+      '<button data-act="copyBuild">Copy the whole file</button>' +
+      '<button data-act="downloadBuild">Download library.js</button>' +
+      '<span class="grow"></span><span class="small muted" id="buildSize"></span>' +
+    "</div>" +
+    '<pre class="code" id="buildOut"></pre></div>');
+
+  el("buildBody").innerHTML = h.join("");
+  renderOut();
+}
+
+function renderOut() {
+  const pre = el("buildOut");
+  if (!pre || !B) return;
+  const tail = engineTailFrom(SOURCE);
+  pre.textContent = tail
+    ? generateHead(B) + ENGINE_PLACEHOLDER
+    : "The script you loaded has no engine section, so the file cannot be assembled.\n" +
+      "Load library.js (or the lighthouse example) first.";
+  const size = el("buildSize");
+  if (size) {
+    const full = generateSource(B);
+    size.textContent = full ? (Math.round(full.length / 102.4) / 10) + " KB, " +
+      full.split("\n").length + " lines" : "";
+  }
+}
+
+function markDirty(on) {
+  const n = el("buildDirty");
+  if (n) n.innerHTML = on ? '<span class="chip warn">not checked yet</span>' : '<span class="chip ok">checked</span>';
+}
+
+/* =============================================================================
+   THE LADDER, as a form
+   ============================================================================= */
+
+function beatOptions(selected) {
+  const groups = {};
+  (B.triggers || []).forEach(t => {
+    if (!t.key) return;
+    (groups[t.cat] = groups[t.cat] || []).push(t);
+  });
+  let h = '<option value="">(pick a beat)</option>';
+  Object.keys(groups).forEach(cat => {
+    h += '<optgroup label="' + att(cat) + '">';
+    groups[cat].forEach(t => {
+      const val = t.cat + "." + t.key;
+      const label = t.key + " - " + String(t.text || "").replace(/^\[|\]$/g, "").slice(0, 58);
+      h += '<option value="' + att(val) + '"' + (val === selected ? " selected" : "") + ">" + esc(label) + "</option>";
+    });
+    h += "</optgroup>";
+  });
+  if (selected && !(B.triggers || []).some(t => t.cat + "." + t.key === selected))
+    h += '<option value="' + att(selected) + '" selected>' + esc(selected) + " (missing!)</option>";
+  return h;
+}
+
+function optionList(values, selected, blankLabel) {
+  return (blankLabel ? '<option value="">' + esc(blankLabel) + "</option>" : "") +
+    values.map(v => '<option value="' + att(v) + '"' + (String(v) === String(selected) ? " selected" : "") +
+      ">" + esc(v) + "</option>").join("");
+}
+
+function condRow(c, ri, ci, first) {
+  const p = "rules." + ri + ".conds." + ci;
+  const yn = (not, yes, no) =>
+    '<select data-b="' + p + '.not" data-type="bool" style="width:auto">' +
+      '<option value="0"' + (not ? "" : " selected") + ">" + esc(yes) + "</option>" +
+      '<option value="1"' + (not ? " selected" : "") + ">" + esc(no) + "</option>" +
+    "</select>";
+
+  let body = "";
+  switch (c.t) {
+    case "phase":
+      body = yn(c.not, "is", "is not") +
+        '<select data-b="' + p + '.v">' + optionList(PHASES, c.v) + "</select>";
+      break;
+    case "visited":
+      body = '<select data-b="' + p + '.v">' +
+        optionList(B.locations.map(l => l.key), c.v) +
+        (B.locations.some(l => l.key === c.v) ? "" :
+          '<option value="' + att(c.v) + '" selected>' + esc(c.v) + " (missing!)</option>") +
+        "</select>" + yn(c.not, "has been reached", "has NOT been reached");
+      break;
+    case "met":
+      body = '<select data-b="' + p + '.v">' +
+        optionList(B.characters, c.v) +
+        (B.characters.indexOf(c.v) >= 0 ? "" :
+          '<option value="' + att(c.v) + '" selected>' + esc(c.v) + " (missing!)</option>") +
+        "</select>" + yn(c.not, "has turned up", "has NOT turned up");
+      break;
+    case "mood":
+      body = yn(c.not, "is", "is not") +
+        '<select data-b="' + p + '.v">' + optionList(Object.keys(B.moods).concat(["neutral"]), c.v) + "</select>";
+      break;
+    case "num":
+      body = '<select data-b="' + p + '.f">' + optionList(COUNTERS.map(x => x[0]), c.f) + "</select>" +
+        '<select data-b="' + p + '.op" style="width:auto">' +
+          optionList([">=", ">", "<=", "<", "===", "!=="], c.op) + "</select>" +
+        '<input type="number" class="num" data-type="number" data-b="' + p + '.n" value="' + att(c.n) + '">';
+      break;
+    case "seeking":
+      body = yn(c.not, "yes", "no");
+      break;
+    case "companion":
+      body = yn(c.not, "yes", "no");
+      break;
+    case "roomForPrimary":
+      body = yn(c.not, "yes, there is room", "no, they have them all");
+      break;
+    case "beat":
+      body = '<select data-b="' + p + '.v">' + beatOptions(c.v) + "</select>" +
+        yn(c.not, "was used recently", "was NOT used recently");
+      break;
+    default:
+      body = '<input type="text" class="raw" data-b="' + p + '.expr" value="' + att(c.expr) +
+        '" placeholder="progression.totalTurns > 20" spellcheck="false">';
+  }
+
+  return '<div class="cond">' +
+    '<span class="lead">' + (first ? "when" : "and") + "</span>" +
+    '<select data-act="condKind" data-r="' + ri + '" data-c="' + ci + '" style="width:auto">' +
+      COND_KINDS.map(([k, label]) => '<option value="' + k + '"' + (c.t === k ? " selected" : "") + ">" +
+        esc(label) + "</option>").join("") +
+    "</select>" + body +
+    '<button class="tiny" data-act="delCond" data-r="' + ri + '" data-c="' + ci + '">&times;</button>' +
+    (LIVE_EVAL ? condVerdict(c) : "") +
+  "</div>";
+}
+
+let LIVE_EVAL = false;
+
+function evalExpr(expr) {
+  if (!sb || !expr) return null;
+  try {
+    const f = new Function("progression", "TRIGGERS", "STORY_CONFIG", "PROGRESSION_CONFIG",
+      "return !!(" + expr + ");");
+    return !!f(progressionOf(sb) || {}, sb.api.TRIGGERS, sb.api.STORY_CONFIG, sb.api.PROGRESSION_CONFIG);
+  } catch (e) { return null; }
+}
+
+function condVerdict(c) {
+  const v = evalExpr(condCode(c));
+  if (v === null) return '<span class="chip why err">broken</span>';
+  return v ? '<span class="chip why ok">true now</span>' : '<span class="chip why">false now</span>';
+}
+
+function ruleFires(r) {
+  const parts = (r.conds || []).map(condCode).filter(Boolean);
+  if (!parts.length) return true;
+  return evalExpr(parts.join(" && "));
+}
+
+function renderLadder() {
+  if (!B) return;
+  const box = el("ladderBox");
+
+  if (B.rawLadder) {
+    box.innerHTML =
+      '<div class="card"><h3 class="sec">This ladder is hand written</h3>' +
+      '<p class="plain" style="margin-top:0">The <span class="mono">getRichTrigger()</span> in the file you ' +
+      "loaded does something the form cannot take apart safely - an <span class=\"mono\">else</span>, a loop, " +
+      "or a local variable. Rather than guess, the page keeps your function <b>exactly as you wrote it</b> and " +
+      "writes it into the finished file untouched.</p>" +
+      '<div class="row"><button data-act="dropRaw">Replace it with a fresh ladder I can edit</button>' +
+      '<button data-act="forceParse">Try to take it apart anyway</button></div>' +
+      '<pre class="code" style="margin-top:10px">' + esc(B.rawLadder) + "</pre></div>";
+    el("ladderRaw").innerHTML = "";
+    return;
+  }
+
+  // First rule that fires wins; everything below it is only reachable when it does not.
+  let winner = -1;
+  if (LIVE_EVAL) {
+    for (let i = 0; i < B.rules.length; i++) {
+      const r = B.rules[i];
+      if (r.on === false || !r.beat) continue;
+      if (ruleFires(r)) { winner = i; break; }
+    }
+  }
+
+  box.innerHTML = B.rules.map((r, i) => {
+    const fires = LIVE_EVAL && i === winner;
+    return '<div class="rule' + (r.on === false ? " off" : "") + (fires ? " fires" : "") +
+      '" data-r="' + i + '">' +
+      '<div class="head">' +
+        '<span class="num">' + (i + 1) + "</span>" +
+        '<label class="inline" title="turn this rung off without deleting it">' +
+          '<input type="checkbox" data-b="rules.' + i + '.on"' +
+            (r.on === false ? "" : " checked") + "></label>" +
+        '<input type="text" class="note" data-b="rules.' + i + '.note" value="' + att(r.note) +
+          '" placeholder="what is this rung for?">' +
+        (fires ? '<span class="chip on">this is the one that fires</span>' : "") +
+        '<span class="grow"></span>' +
+        '<button class="tiny" data-act="ruleUp" data-i="' + i + '" title="move up">&uarr;</button>' +
+        '<button class="tiny" data-act="ruleDown" data-i="' + i + '" title="move down">&darr;</button>' +
+        '<button class="tiny" data-act="dupRule" data-i="' + i + '" title="make a copy">copy</button>' +
+        '<button class="tiny" data-act="delRule" data-i="' + i + '" title="delete">&times;</button>' +
+      "</div>" +
+      '<div class="body">' +
+        (r.conds || []).map((c, ci) => condRow(c, i, ci, ci === 0)).join("") +
+        (!(r.conds || []).length
+          ? '<p class="plain" style="margin:0 0 6px"><span class="chip warn">no conditions</span> ' +
+            "this rung always fires, so nothing below it can ever be reached</p>" : "") +
+        '<div class="quick" style="margin-top:0"><button class="tiny" data-act="addCond" data-i="' + i + '">+ condition</button></div>' +
+        '<div class="then">' +
+          "<span class=\"small muted\">then send</span>" +
+          '<select data-b="rules.' + i + '.beat" data-rerender="1">' + beatOptions(r.beat) + "</select>" +
+          '<label class="inline" title="1 = always, 0.3 = roughly one turn in three">chance ' +
+            '<input type="number" step="0.05" min="0.05" max="1" style="width:74px" data-type="float" ' +
+            'data-b="rules.' + i + '.chance" value="' + att(r.chance == null ? 1 : r.chance) + '"></label>' +
+        "</div>" +
+        '<p class="plain">' + esc(ruleText(r, MODEL)) + "</p>" +
+        '<div class="genline">' + esc(ruleCode(r, "")) + "</div>" +
+      "</div>" +
+    "</div>";
+  }).join("");
+
+  el("ladderRaw").innerHTML =
+    '<div class="card"><h3 class="sec">The whole ladder as JavaScript</h3>' +
+    '<pre class="code">' + esc(ladderCode(B.rules)) + "</pre></div>";
+}
+
+/* ---- ready-made rungs ---------------------------------------------------- */
+
+function rulePresets() {
+  const firstUnvisited = (B.locations[0] || {}).key || "location1";
+  const firstChar = B.characters[0] || "Character1";
+  const beat = (cat, fallback) => {
+    const t = (B.triggers || []).find(x => x.cat === cat);
+    return t ? t.cat + "." + t.key : fallback;
+  };
+  return [
+    ["Nudge toward a place the player has not found",
+     { on: true, note: "nudge toward " + firstUnvisited, chance: 1,
+       conds: [{ t: "phase", not: false, v: "early" },
+               { t: "visited", not: true, v: firstUnvisited },
+               { t: "num", f: "explorationLevel", op: ">=", n: 2 }],
+       beat: beat("location", "location.loc1") }],
+    ["Introduce a character who has not turned up",
+     { on: true, note: "introduce " + firstChar, chance: 0.4,
+       conds: [{ t: "phase", not: false, v: "mid" }, { t: "met", not: true, v: firstChar }],
+       beat: beat("character", "character.char1") }],
+    ["A quiet moment once the bond is real",
+     { on: true, note: "quiet moment with the companion", chance: 0.3,
+       conds: [{ t: "companion", not: false },
+               { t: "num", f: "companionIntimacy", op: ">=", n: 5 },
+               { t: "num", f: "turnsSinceLastIntimacy", op: ">=", n: 8 },
+               { t: "num", f: "companionBond", op: ">=", n: 15 }],
+       beat: beat("relationship", "relationship.intimacy") }],
+    ["Help a player who said they are hunting for the item",
+     { on: true, note: "they asked for it", chance: 1,
+       conds: [{ t: "seeking", not: false },
+               { t: "num", f: "turnsSinceLastTrigger", op: ">=", n: 4 },
+               { t: "roomForPrimary", not: false }],
+       beat: beat("quest", "quest.collectible") }],
+    ["React to the mood the player set",
+     { on: true, note: "mood: somber", chance: 1,
+       conds: [{ t: "mood", not: false, v: "somber" }],
+       beat: beat("emotional", "emotional.grief") }],
+    ["A loose thread when nothing else applies",
+     { on: true, note: "fallback", chance: 1,
+       conds: [{ t: "num", f: "turnsSinceLastTrigger", op: ">=", n: 5 }],
+       beat: beat("location", "location.mystery") }]
+  ];
+}
+
+/* =============================================================================
+   THE LEFT PANE - state, quick buttons, turn log
+   ============================================================================= */
+
+function renderNow() {
+  const p = progressionOf(sb);
+  if (!p) { el("nowBox").innerHTML = '<dt>turn</dt><dd>none played yet</dd>'; return; }
+  const cfg = sb.api.PROGRESSION_CONFIG || {};
+  const ready = (p.turnsSinceLastTrigger || 0) >= (cfg.minTurnsBetweenTriggers || 0);
+  const rows = [
+    ["turn", p.totalTurns || 0],
+    ["phase", '<span class="chip mag">' + esc(p.storyPhase) + "</span>"],
+    ["mood", esc(p.recentMood)],
+    ["exploration", p.explorationLevel || 0],
+    ["bond", (p.companionBond || 0) + (MODEL.companionName ? "" : " (no companion)")],
+    ["intimacy", (p.companionIntimacy || 0) + " / 10"],
+    ["items", (p.primaryCollected || 0) + " primary, " + (p.secondaryCollected || 0) + " secondary"],
+    ["next beat", ready ? '<span class="chip ok">allowed now</span>'
+      : '<span class="chip">in ' + ((cfg.minTurnsBetweenTriggers || 0) - (p.turnsSinceLastTrigger || 0)) + " turns</span>"]
+  ];
+  el("nowBox").innerHTML = rows.map(([k, v]) => "<dt>" + esc(k) + "</dt><dd>" + v + "</dd>").join("");
+
+  const chips = [];
+  Object.keys(p.visitedLocations || {}).forEach(k =>
+    chips.push('<span class="chip' + (p.visitedLocations[k] ? " ok" : "") + '">' + esc(k) + "</span>"));
+  Object.keys(p.metCharacters || {}).forEach(k =>
+    chips.push('<span class="chip' + (p.metCharacters[k] ? " on" : "") + '">' + esc(k) + "</span>"));
+  el("nowChips").innerHTML = chips.join("");
+}
+
+function renderQuick() {
+  const bk = MODEL.behaviorKeywords || {};
+  const p = [];
+  const push = (label, text) => p.push('<button data-say="' + att(text) + '">' + esc(label) + "</button>");
+  if ((bk.exploration || [])[0]) push("explore", "I " + bk.exploration[0] + " the area carefully.");
+  if ((bk.intimacy || [])[0]) push("get close", "I " + bk.intimacy[0] + " " + (MODEL.companionName || "them") + ".");
+  if ((bk.seeking || [])[0]) {
+    const item = ((MODEL.collectibles.primary || {}).keywords || [])[0] || "it";
+    push("go hunting", "I " + bk.seeking[0] + " the " + item + ".");
+  }
+  if ((bk.memory || [])[0]) push("remember", "I " + bk.memory[0] + " something.");
+  Object.keys(MODEL.moods || {}).forEach(m => {
+    const w = (MODEL.moods[m] || [])[0];
+    if (w) push("feel " + m, "This all feels " + w + ".");
+  });
+  push("say nothing much", "I wait and listen.");
+  el("quickPlayer").innerHTML = '<span class="chip">you</span>' + p.join("");
+
+  const a = [];
+  const pushAi = (label, text) => a.push('<button data-ai="' + att(text) + '">' + esc(label) + "</button>");
+  Object.keys(MODEL.locations || {}).forEach(k => {
+    const kw = (MODEL.locations[k].keywords || [])[0];
+    if (kw) pushAi("arrive: " + k, "Ahead of you stands the " + kw + ", closer than it looked.");
+  });
+  (MODEL.characters || []).forEach(c => pushAi("meet: " + c, c + " steps out of the dark and looks you over."));
+  const prim = ((MODEL.collectibles.primary || {}).keywords || [])[0];
+  if (prim) pushAi("find an item", "Tucked into the wall you find a " + prim + ".");
+  el("quickAi").innerHTML = '<span class="chip">the AI</span>' + a.join("");
+}
+
+function renderLog() {
+  el("log").innerHTML = LOG.length ? LOG.slice().reverse().map(t => {
+    const bits = [];
+    bits.push('<div class="no">TURN ' + t.no + " &middot; " + esc(t.phase) + "</div>");
+    bits.push('<div class="said"><b>you</b> ' + esc(t.player || "(nothing)") + "</div>");
+    if (t.injected) bits.push('<div class="beat">' + esc(t.injected) + "</div>");
+    else bits.push('<div class="small muted" style="margin:4px 0">nothing injected this turn</div>');
+    bits.push('<div class="said"><b>AI</b> ' + esc(t.ai) + "</div>");
+    if (t.message) bits.push('<div class="msg mono">' + esc(t.message) + "</div>");
+    if (t.changes.length)
+      bits.push('<div class="quick">' + t.changes.map(c =>
+        '<span class="chip ' + (c.kind === "reach" || c.kind === "meet" ? "ok" : c.kind === "phase" ? "mag" : "") + '">' +
+        esc(c.text) + "</span>").join("") + "</div>");
+    return '<div class="turn">' + bits.join("") + "</div>";
+  }).join("") : '<p class="small muted">No turns yet. Type something above, or press one of the grey buttons.</p>';
+}
+
+function renderHood() {
+  const last = LOG[LOG.length - 1];
+  el("aiBox").innerHTML = last
+    ? (last.injected
+        ? '<div class="beat">' + esc(last.injected) + "</div>" +
+          '<p class="small muted">...and then the whole context, unchanged.</p>'
+        : '<p class="small muted">Nothing was injected on the last turn - the pacing setting was not satisfied, ' +
+          "or no rung of the ladder matched.</p>")
+    : '<p class="small muted">Play a turn first.</p>';
+
+  el("cardsBox").innerHTML = sb.storyCards.length ? sb.storyCards.map((c, i) =>
+    '<div class="card"><div class="row" style="margin-bottom:6px"><b>' + esc(c.title || "(untitled)") + "</b>" +
+    '<span class="chip">keys: ' + esc(c.keys) + "</span>" +
+    '<span class="grow"></span><button class="tiny" data-act="applyCard" data-i="' + i + '">Apply</button></div>' +
+    '<textarea rows="12" data-card="' + i + '" spellcheck="false">' + esc(c.entry) + "</textarea></div>").join("")
+    : '<p class="small muted">The card appears after the first turn.</p>';
+
+  el("stateBox").textContent = JSON.stringify(progressionOf(sb) || {}, null, 2);
+}
+
+function renderStory() {
+  const m = MODEL;
+  const h = [];
+
+  h.push('<div class="card"><h3 class="sec">In one breath</h3><p class="plain" style="margin-top:0">' +
+    "This story has <b>" + Object.keys(m.locations).length + " places</b>, <b>" + m.characters.length +
+    " people</b> the engine watches for, and <b>" +
+    Object.values(m.triggers).reduce((a, g) => a + Object.keys(g || {}).length, 0) + " beats</b> it can send. " +
+    (m.companionName ? "The companion is <b>" + esc(m.companionName) + "</b>."
+                     : "There is no companion, so every relationship counter stays at zero.") +
+    " The strategy is <b>" + esc(m.cfg.strategy || "rich") + "</b>, and it may inject at most once every <b>" +
+    (m.cfg.minTurnsBetweenTriggers || 0) + " turns</b>.</p></div>");
+
+  h.push('<div class="card"><h3 class="sec">Places</h3><table><thead><tr>' +
+    "<th>handle</th><th>reached when the AI writes</th><th>on arrival</th></tr></thead><tbody>" +
+    Object.keys(m.locations).map(k => {
+      const l = m.locations[k];
+      const rew = [];
+      if (l.bondBonus) rew.push("bond +" + l.bondBonus);
+      if (l.explorationBonus) rew.push("exploration +" + l.explorationBonus);
+      if (l.intimacyBonus) rew.push("intimacy +" + l.intimacyBonus);
+      if (l.moodOnArrival) rew.push("mood becomes " + l.moodOnArrival);
+      return "<tr><td class=\"mono\">" + esc(k) + "</td><td>" +
+        (l.keywords || []).map(x => '<span class="chip">' + esc(x) + "</span>").join(" ") +
+        "</td><td>" + (rew.length ? esc(rew.join(", ")) : '<span class="muted">nothing</span>') + "</td></tr>";
+    }).join("") + "</tbody></table></div>");
+
+  h.push('<div class="card"><h3 class="sec">People</h3>' +
+    (m.characters.length ? '<div class="quick" style="margin-top:0">' +
+      m.characters.map(c => '<span class="chip">' + esc(c) + "</span>").join("") + "</div>"
+      : '<p class="small muted">None.</p>') + "</div>");
+
+  h.push('<div class="card"><h3 class="sec">Things</h3><table><tbody>' +
+    ["primary", "secondary"].map(slot => {
+      const c = m.collectibles[slot] || {};
+      return "<tr><td class=\"mono\">" + slot + "</td><td><b>" + esc(c.name || "-") + "</b> " +
+        (c.keywords || []).map(x => '<span class="chip">' + esc(x) + "</span>").join(" ") +
+        "</td><td>max " + (c.max || 0) + ", bond +" + (c.bondBonus || 0) +
+        (slot === "secondary" ? ' <span class="chip warn">never counted by the engine</span>' : "") +
+        "</td></tr>";
+    }).join("") + "</tbody></table></div>");
+
+  h.push('<div class="card"><h3 class="sec">What your words do</h3><table><tbody>' +
+    Object.keys(m.behaviorKeywords).map(k =>
+      "<tr><td class=\"mono\" style=\"width:110px\">" + esc(k) + "</td><td>" +
+      (m.behaviorKeywords[k] || []).map(x => '<span class="chip">' + esc(x) + "</span>").join(" ") + "</td></tr>").join("") +
+    Object.keys(m.moods).map(k =>
+      "<tr><td class=\"mono\">mood: " + esc(k) + "</td><td>" +
+      (m.moods[k] || []).map(x => '<span class="chip">' + esc(x) + "</span>").join(" ") + "</td></tr>").join("") +
+    "</tbody></table></div>");
+
+  h.push('<div class="card"><h3 class="sec">The ladder, in order</h3>' +
+    (B.rawLadder
+      ? '<p class="small muted">Hand written - see the ladder tab.</p>'
+      : "<ol class=\"small\" style=\"padding-left:20px;margin:0\">" +
+        B.rules.map(r => "<li style=\"margin-bottom:6px\"" + (r.on === false ? ' class="muted"' : "") + ">" +
+          esc(ruleText(r, m)) + '<br><span class="mono muted">' + esc(r.beat) + "</span></li>").join("") +
+        "</ol>") + "</div>");
+
+  el("storyBox").innerHTML = h.join("");
+}
+
+/* =============================================================================
+   DRY RUN
+   Plays a whole game by itself. The pretend player leans one way or another;
+   the pretend AI does what the injected beat asked about half the time, which
+   is what makes the loop - nudge, arrival, next nudge - actually show up.
+   ============================================================================= */
+
+const PROFILES = {
+  explorer:  { explore: 6, intimate: 1, seek: 2, memory: 1, mood: 1, idle: 2, follows: 0.7 },
+  romantic:  { explore: 2, intimate: 6, seek: 1, memory: 2, mood: 2, idle: 2, follows: 0.5 },
+  questing:  { explore: 3, intimate: 1, seek: 6, memory: 1, mood: 1, idle: 2, follows: 0.65 },
+  mixed:     { explore: 3, intimate: 3, seek: 3, memory: 2, mood: 2, idle: 3, follows: 0.55 },
+  passive:   { explore: 1, intimate: 1, seek: 1, memory: 1, mood: 2, idle: 8, follows: 0.35 }
+};
+
+function weightedPick(rng, weights) {
+  const keys = Object.keys(weights).filter(k => k !== "follows");
+  let total = 0;
+  keys.forEach(k => { total += weights[k]; });
+  let n = rng.next() * total;
+  for (const k of keys) { n -= weights[k]; if (n <= 0) return k; }
+  return keys[0];
+}
+
+function playerLine(cfg, kind, rng) {
+  const bk = cfg.behaviorKeywords || {};
+  const pick = (arr, fallback) => (arr && arr.length) ? rng.pick(arr) : fallback;
+  switch (kind) {
+    case "explore":  return "I " + pick(bk.exploration, "explore") + " what is around me.";
+    case "intimate": return "I " + pick(bk.intimacy, "stay close") + " " + (cfg.companionName || "them") + ".";
+    case "seek": {
+      const item = pick(((cfg.collectibles || {}).primary || {}).keywords, "it");
+      return "I " + pick(bk.seeking, "look for") + " the " + item + ".";
+    }
+    case "memory":   return "I try to " + pick(bk.memory, "remember") + ".";
+    case "mood": {
+      const moods = Object.keys(cfg.moods || {});
+      if (!moods.length) return "I keep going.";
+      const m = rng.pick(moods);
+      return "It all feels " + pick(cfg.moods[m], m) + ".";
+    }
+    default: return "I take a breath and wait.";
+  }
+}
+
+// What the AI writes back. If a beat was injected, it does what it was told
+// about `follows` of the time - that is the whole feedback loop, in one line.
+function aiLine(cfg, prog, injected, rng, follows) {
+  const lower = String(injected || "").toLowerCase();
+  if (injected && rng.next() < follows) {
+    for (const key of Object.keys(cfg.locations || {})) {
+      if (prog.visitedLocations && prog.visitedLocations[key]) continue;
+      const kws = cfg.locations[key].keywords || [];
+      if (kws.some(k => lower.includes(String(k).toLowerCase())))
+        return "You come up on the " + kws[0] + " at last.";
+    }
+    for (const name of (cfg.characters || [])) {
+      if (prog.metCharacters && prog.metCharacters[name]) continue;
+      if (lower.includes(String(name).toLowerCase()))
+        return name + " is waiting there, and does not look surprised.";
+    }
+    const prim = ((cfg.collectibles || {}).primary || {}).keywords || [];
+    if (prim.length && (lower.includes("page") || lower.includes("item") || lower.includes("find")))
+      return "Half buried, there is a " + prim[0] + ".";
+  }
+  // otherwise the scene just moves along
+  return rng.pick([
+    "The fog shifts and nothing much changes.",
+    "You keep walking. The light goes on ahead of you.",
+    "Somewhere behind you a door closes.",
+    "The two of you sit for a while and say nothing."
+  ]);
+}
+
+function dryRun(profileName, turns, seed) {
+  const s = createSandbox(SOURCE);
+  s.rng.seed(seed);
+  const cfg = s.api.STORY_CONFIG;
+  const w = PROFILES[profileName] || PROFILES.mixed;
+  const rows = [];
+  const fired = {};
+  const phaseAt = {};
+  const reachedAt = {};
+  const metAt = {};
+  const gaps = [];
+  let lastInject = 0, error = null;
+
+  for (let i = 1; i <= turns; i++) {
+    const kind = weightedPick(s.rng, w);
+    const line = playerLine(cfg, kind, s.rng);
+    let t;
+    try {
+      t = runTurn(s, line, (injected) =>
+        aiLine(cfg, progressionOf(s) || {}, injected, s.rng, w.follows));
+    } catch (e) {
+      error = "turn " + i + ": " + (e && e.message ? e.message : String(e));
+      break;
+    }
+    const p = progressionOf(s) || {};
+    if (!phaseAt[p.storyPhase]) phaseAt[p.storyPhase] = i;
+    Object.keys(p.visitedLocations || {}).forEach(k => {
+      if (p.visitedLocations[k] && !reachedAt[k]) reachedAt[k] = i;
+    });
+    Object.keys(p.metCharacters || {}).forEach(k => {
+      if (p.metCharacters[k] && !metAt[k]) metAt[k] = i;
+    });
+    if (t.injected) {
+      fired[t.injected] = (fired[t.injected] || 0) + 1;
+      if (lastInject) gaps.push(i - lastInject);
+      lastInject = i;
+    }
+    rows.push({ n: i, kind: kind, player: line, injected: t.injected, ai: t.ai,
+                phase: p.storyPhase, changes: t.changes });
+  }
+
+  const allBeats = [];
+  Object.keys(s.api.TRIGGERS || {}).forEach(cat =>
+    Object.keys(s.api.TRIGGERS[cat] || {}).forEach(k =>
+      allBeats.push({ ref: cat + "." + k, text: s.api.TRIGGERS[cat][k] })));
+
+  return {
+    rows: rows, fired: fired, phaseAt: phaseAt, reachedAt: reachedAt, metAt: metAt,
+    allBeats: allBeats, error: error, turns: turns,
+    avgGap: gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length * 10) / 10 : null,
+    injections: Object.values(fired).reduce((a, b) => a + b, 0),
+    final: progressionOf(s) || {}
+  };
+}
+
+function renderDry(r) {
+  const kv = (k, v) => "<dt>" + esc(k) + "</dt><dd>" + v + "</dd>";
+  const phases = PHASES.map(p => r.phaseAt[p] ? p + " at turn " + r.phaseAt[p] : null).filter(Boolean);
+  const never = r.allBeats.filter(b => !r.fired[b.text]);
+
+  let h = "";
+  if (r.error) h += '<div class="card"><span class="chip err">it crashed</span> <span class="mono">' +
+    esc(r.error) + "</span></div>";
+
+  h += '<div class="card"><dl class="kv">' +
+    kv("turns played", r.rows.length) +
+    kv("beats injected", r.injections + (r.avgGap ? " (one every " + r.avgGap + " turns)" : "")) +
+    kv("phases reached", phases.length ? esc(phases.join(", ")) : "stayed in early") +
+    kv("places reached", Object.keys(r.reachedAt).length
+      ? Object.keys(r.reachedAt).map(k => '<span class="chip ok">' + esc(k) + " @" + r.reachedAt[k] + "</span>").join(" ")
+      : '<span class="chip err">none</span>') +
+    kv("people met", Object.keys(r.metAt).length
+      ? Object.keys(r.metAt).map(k => '<span class="chip on">' + esc(k) + " @" + r.metAt[k] + "</span>").join(" ")
+      : '<span class="chip warn">none</span>') +
+    kv("items found", r.final.primaryCollected || 0) +
+    "</dl></div>";
+
+  if (never.length) h += '<div class="card"><h3 class="sec">Beats that never fired</h3>' +
+    '<p class="small muted" style="margin-top:0">Not always wrong - some rungs are meant to be rare. But a beat ' +
+    "no rung can reach is dead weight in the file.</p>" +
+    never.map(b => '<div class="small"><span class="chip warn">' + esc(b.ref) + "</span> " +
+      esc(String(b.text).slice(0, 90)) + "</div>").join("") + "</div>";
+
+  const top = Object.keys(r.fired).sort((a, b) => r.fired[b] - r.fired[a]);
+  const max = top.length ? r.fired[top[0]] : 1;
+  if (top.length) h += '<div class="card"><h3 class="sec">What carried the story</h3><table><tbody>' +
+    top.map(t => "<tr><td style=\"width:44px\">" + r.fired[t] + "&times;</td><td style=\"width:90px\">" +
+      '<div class="bar"><i style="width:' + Math.round(r.fired[t] / max * 100) + '%"></i></div></td><td>' +
+      esc(String(t).slice(0, 110)) + "</td></tr>").join("") + "</tbody></table></div>";
+
+  el("drySummary").innerHTML = h;
+
+  const interesting = r.rows.filter(x => x.injected || x.changes.length);
+  el("dryTable").innerHTML = '<div class="card"><h3 class="sec">Turn by turn (' +
+    interesting.length + " turns where something happened)</h3>" +
+    "<table><thead><tr><th>#</th><th>phase</th><th>the player</th><th>injected</th><th>what changed</th>" +
+    "</tr></thead><tbody>" +
+    interesting.map(x => '<tr class="' + (x.injected ? "hit" : "") + '"><td>' + x.n + "</td><td>" + esc(x.phase) +
+      "</td><td>" + esc(x.player) + "</td><td>" +
+      (x.injected ? esc(String(x.injected).slice(0, 80)) : '<span class="muted">-</span>') + "</td><td>" +
+      x.changes.map(c => '<span class="chip">' + esc(c.text) + "</span>").join(" ") + "</td></tr>").join("") +
+    "</tbody></table></div>";
+}
+
+/* =============================================================================
+   INSTALL
+   ============================================================================= */
+
+function renderInstall() {
+  const full = generateSource(B);
+  const boxes = [
+    ["Library", "library.js", full || "(no engine section in the loaded script)", true],
+    ["Input", "input.js", HOOKS["input.js"], false],
+    ["Context", "context.js", HOOKS["context.js"], false],
+    ["Output", "output.js", HOOKS["output.js"], false]
+  ];
+  el("installBox").innerHTML =
+    '<div class="card"><h3 class="sec">Four tabs, four pastes</h3><ol class="steps">' +
+    "<li>In AI Dungeon, open your scenario and go to <b>Edit Scenario &rarr; Details &rarr; Scripts</b>.</li>" +
+    "<li>Paste each box below into the tab with the same name. The <b>Library</b> tab is the big one - " +
+    "it is the file you just built. The other three never change, and never need editing.</li>" +
+    "<li>Play one turn. The engine writes a <b>Progression Settings</b> story card into the adventure " +
+    "by itself, and pins it to the top of your card list.</li>" +
+    "<li>Tune the story from that card while you play - pacing, strategy, limits. No code, and no " +
+    "coming back here.</li></ol>" +
+    '<p class="plain">Nothing here talks to AI Dungeon; it is all copy and paste. If you change your story ' +
+    "later, come back, load your <span class=\"mono\">library.js</span>, and edit it in the forms.</p></div>" +
+    boxes.map(([label, file, text, big]) =>
+      '<div class="card"><div class="row" style="margin-bottom:8px"><b>' + esc(label) + " tab</b>" +
+      '<span class="chip mono">' + esc(file) + "</span>" +
+      '<span class="chip">' + (text ? text.split("\n").length : 0) + " lines</span>" +
+      '<span class="grow"></span>' +
+      '<button data-act="copyText" data-file="' + att(file) + '">Copy</button>' +
+      '<button data-act="downloadText" data-file="' + att(file) + '">Download</button></div>' +
+      '<pre class="code"' + (big ? ' style="max-height:220px"' : "") + ">" + esc(text) + "</pre></div>").join("");
+}
+
+function textForFile(file) {
+  if (file === "library.js") return generateSource(B) || "";
+  return HOOKS[file] || "";
+}
+
+/* =============================================================================
+   CHECKS
+   ============================================================================= */
+
+function condSignature(r) {
+  return (r.conds || []).map(condCode).filter(Boolean).sort().join(" && ");
+}
+
+function runChecks() {
+  const out = [];
+  const add = (level, title, detail) => out.push({ level: level, title: title, detail: detail || "" });
+  const cfgS = sb.api.STORY_CONFIG || {};
+  const trig = sb.api.TRIGGERS || {};
+  const beatSet = {};
+  Object.keys(trig).forEach(cat => Object.keys(trig[cat] || {}).forEach(k => { beatSet[cat + "." + k] = trig[cat][k]; }));
+
+  // --- the file itself ------------------------------------------------------
+  engineTailFrom(SOURCE)
+    ? add("ok", "The engine section is where it should be",
+          "The planner can rebuild this file without carrying its own copy of the engine.")
+    : add("err", "No engine section found",
+          "Nothing after the \"engine plumbing\" banner. The planner cannot assemble a finished file " +
+          "from this - load library.js or the lighthouse example.");
+
+  let fresh = null;
+  try {
+    fresh = createSandbox(SOURCE);
+    runTurn(fresh, "I look around", "Nothing happens.");
+    add("ok", "It survives its very first turn",
+        "state.memory is created before it is read, so a brand new adventure will not crash.");
+  } catch (e) {
+    add("err", "It crashes on the first turn", String(e && e.message || e) +
+      "  -  if this mentions state.memory, add  if (!state.memory) state.memory = {};  at the top of " +
+      "StoryProgression().");
+  }
+
+  const gen = generateSource(B);
+  if (gen) {
+    try {
+      new Function(gen);
+      add("ok", "The file the planner writes is valid JavaScript",
+          Math.round(gen.length / 1024) + " KB, " + gen.split("\n").length + " lines.");
+      const round = createSandbox(gen);
+      const rm = readModel(round);
+      const lost = Object.keys(cfgS.locations || {}).filter(k => !(rm.locations || {})[k]);
+      lost.length
+        ? add("warn", "Some places did not survive the round trip", lost.join(", "))
+        : add("ok", "Everything survives a round trip", "Built, re-read, and nothing changed.");
+    } catch (e) {
+      add("err", "The file the planner writes will not parse", String(e && e.message || e));
+    }
+  }
+
+  // --- places, people, things ----------------------------------------------
+  const locKeys = Object.keys(cfgS.locations || {});
+  if (!locKeys.length) add("err", "There are no places", "The engine has nothing to track.");
+  const noKw = locKeys.filter(k => !((cfgS.locations[k].keywords || []).filter(Boolean).length));
+  noKw.length
+    ? add("err", "Places with no keywords can never be reached", noKw.join(", "))
+    : add("ok", "Every place has something to spot it by");
+
+  const owners = [];
+  locKeys.forEach(k => (cfgS.locations[k].keywords || []).forEach(w => owners.push([w, "place " + k])));
+  (cfgS.characters || []).forEach(c => owners.push([c, "character " + c]));
+  ["primary", "secondary"].forEach(s =>
+    (((cfgS.collectibles || {})[s] || {}).keywords || []).forEach(w => owners.push([w, s + " item"])));
+
+  const shorties = owners.filter(([w]) => String(w).trim().length < 4);
+  shorties.length
+    ? add("warn", "Very short keywords fire on the wrong word",
+          shorties.map(([w, o]) => '"' + w + '" (' + o + ")").join(", ") +
+          " - a three letter keyword matches inside longer words, so \"ash\" also matches \"ashes\".")
+    : add("ok", "No keyword is short enough to fire by accident");
+
+  const clashes = [];
+  owners.forEach(([w, o]) => owners.forEach(([w2, o2]) => {
+    if (o === o2 || w === w2) return;
+    const a = String(w).toLowerCase(), b = String(w2).toLowerCase();
+    if (a.length >= b.length && a.includes(b)) clashes.push('"' + b + '" (' + o2 + ') fires whenever "' + a + '" (' + o + ") is written");
+  }));
+  clashes.length
+    ? add("warn", "Some keywords swallow others", Array.from(new Set(clashes)).slice(0, 8).join("; "))
+    : add("ok", "No keyword is hidden inside another");
+
+  const behaviourWords = [];
+  Object.keys(cfgS.behaviorKeywords || {}).forEach(k =>
+    (cfgS.behaviorKeywords[k] || []).forEach(w => behaviourWords.push([w, k])));
+  const shortBehaviour = behaviourWords.filter(([w]) => String(w).trim().length < 3);
+  if (shortBehaviour.length)
+    add("warn", "Behaviour words that will match almost anything",
+        shortBehaviour.map(([w, k]) => '"' + w + '" (' + k + ")").join(", "));
+
+  const sec = ((cfgS.collectibles || {}).secondary || {});
+  if ((sec.keywords || []).length)
+    add("warn", "The secondary item is configured but never counted",
+        "The shipped output modifier only counts the primary item, so secondaryCollected stays at 0 " +
+        "no matter what the AI writes. Use it for flavour, or add a matching block to " +
+        "handleOutputModifier().");
+
+  // --- the ladder -----------------------------------------------------------
+  if (B.rawLadder) {
+    add("warn", "The ladder is hand written",
+        "The planner keeps your getRichTrigger() verbatim, so none of the ladder checks below can run.");
+  } else {
+    const missingBeat = B.rules.filter(r => r.on !== false && (!r.beat || !beatSet[r.beat]));
+    missingBeat.length
+      ? add("err", "Rungs pointing at beats that do not exist",
+            missingBeat.map(r => "rung " + (B.rules.indexOf(r) + 1) + " sends " + (r.beat || "(nothing)")).join(", ") +
+            " - these throw or inject undefined.")
+      : add("ok", "Every rung sends a beat that exists");
+
+    const badRef = [];
+    B.rules.forEach((r, i) => (r.conds || []).forEach(c => {
+      if (c.t === "visited" && locKeys.indexOf(c.v) < 0) badRef.push("rung " + (i + 1) + " asks about place " + c.v);
+      if (c.t === "met" && (cfgS.characters || []).indexOf(c.v) < 0) badRef.push("rung " + (i + 1) + " asks about character " + c.v);
+    }));
+    badRef.length
+      ? add("err", "Rungs asking about places or people that were renamed", badRef.join("; ") +
+            " - these conditions are always undefined, so the rung silently never fires (or always does).")
+      : add("ok", "Every rung asks about something that exists");
+
+    const dead = [];
+    B.rules.forEach((r, i) => {
+      if (r.on === false) return;
+      const mine = condSignature(r).split(" && ").filter(Boolean);
+      for (let j = 0; j < i; j++) {
+        const e = B.rules[j];
+        if (e.on === false || (e.chance != null && e.chance < 1)) continue;
+        const theirs = condSignature(e).split(" && ").filter(Boolean);
+        if (theirs.every(t => mine.indexOf(t) >= 0)) {
+          dead.push("rung " + (i + 1) + " can never be reached - rung " + (j + 1) +
+            (theirs.length ? " asks for less and sits above it" : " always fires"));
+          break;
+        }
+      }
+    });
+    dead.length ? add("err", "Rungs the ladder can never reach", dead.join("; "))
+                : add("ok", "Every rung is reachable");
+
+    // The engine only calls getRichTrigger() once turnsSinceLastTrigger has
+    // reached the pacing setting, and the first matching rung resets it to 0.
+    // A rung asking for MORE turns than the pacing allows can therefore only
+    // fire on turns where every rung below it also declined - which, on a full
+    // ladder, is close to never.
+    const pace = parseInt((sb.api.PROGRESSION_CONFIG || {}).minTurnsBetweenTriggers, 10) || 0;
+    const waitsFor = (r) => (r.conds || []).reduce((n, c) =>
+      (c.t === "num" && c.f === "turnsSinceLastTrigger" && (c.op === ">=" || c.op === ">"))
+        ? Math.max(n, parseInt(c.n, 10) || 0) : n, 0);
+    const starved = [];
+    B.rules.forEach((r, i) => {
+      if (r.on === false || waitsFor(r) <= pace) return;
+      const takenBy = B.rules.findIndex((later, j) =>
+        j > i && later.on !== false && later.beat && waitsFor(later) <= pace);
+      if (takenBy >= 0)
+        starved.push("rung " + (i + 1) + " waits for " + waitsFor(r) + " turns, but rung " +
+          (takenBy + 1) + " can take the turn at " + pace);
+    });
+    if (starved.length) add("warn", "Rungs that may be starved by the ones below them",
+      starved.join("; ") + ". The counter only resets when something is actually injected, so a rung " +
+      "asking for more turns than the pacing allows never gets its chance if a rung below it fires " +
+      "first. Lower the number to " + pace + " or below, or move the rung down.");
+
+    const unused = Object.keys(beatSet).filter(b => !B.rules.some(r => r.on !== false && r.beat === b));
+    if (unused.length) add("warn", "Beats no rung sends", unused.join(", ") +
+      " - written into the file, and unreachable. (Legacy strategies use some of these.)");
+
+    const unusedLoc = locKeys.filter(k => !B.rules.some(r => (r.conds || []).some(c => c.t === "visited" && c.v === k)));
+    if (unusedLoc.length) add("warn", "Places no rung ever asks about",
+      unusedLoc.join(", ") + " - they are still detected and still pay out their bonuses, but nothing " +
+      "in the ladder guides the player toward them.");
+
+    if (!cfgS.companionName) {
+      const rel = B.rules.filter(r => r.on !== false && (r.conds || []).some(c =>
+        c.t === "companion" || (c.t === "num" && /companion/i.test(c.f))));
+      if (rel.length) add("warn", "Relationship rungs with no companion configured",
+        "companionName is empty, so companionBond and companionIntimacy never move and these rungs never fire.");
+    }
+  }
+
+  // --- beats ----------------------------------------------------------------
+  const engineNeeds = [["location.mystery", "the Sequential and Rich fallbacks"],
+                       ["relationship.intimacy", "the intimacy cooldown"],
+                       ["relationship.special", "the intimacy cooldown"],
+                       ["relationship.sync", "the intimacy cooldown"],
+                       ["quest.collectible", "the collectible nudge"]];
+  const missingEngine = engineNeeds.filter(([b]) => !beatSet[b]);
+  missingEngine.length
+    ? add("warn", "Beats the engine itself looks for are missing",
+          missingEngine.map(([b, why]) => b + " (" + why + ")").join(", ") +
+          " - nothing crashes, but those parts of the engine quietly do nothing.")
+    : add("ok", "Every beat the engine reaches for is present");
+
+  const unbracketed = Object.keys(beatSet).filter(b => !/^\s*\[.*\]\s*$/.test(String(beatSet[b])));
+  unbracketed.length
+    ? add("warn", "Beats that are not in square brackets", unbracketed.join(", ") +
+          " - AI Dungeon treats bracketed lines as instructions; unbracketed ones can end up narrated " +
+          "into the story as literal text.")
+    : add("ok", "Every beat is bracketed");
+
+  // --- pacing and the settings card ----------------------------------------
+  const pcfg = sb.api.PROGRESSION_CONFIG || {};
+  if (!pcfg.minTurnsBetweenTriggers)
+    add("warn", "Pacing is set to 0", "A beat every single turn eats context and reads as nagging. 3 is a good start.");
+  else if (pcfg.minTurnsBetweenTriggers > 10)
+    add("warn", "Pacing is very slow", "One beat every " + pcfg.minTurnsBetweenTriggers +
+      " turns means the story mostly runs itself.");
+  else add("ok", "Pacing is sensible", "One beat at most every " + pcfg.minTurnsBetweenTriggers + " turns.");
+
+  const cardSb = fresh || sb;
+  const card = cardSb.storyCards.find(c => String(c.keys || "").toLowerCase().includes("progression settings"));
+  if (!card) add("warn", "No settings card was created",
+    "The engine could not reach addStoryCard(), so players would have no way to tune this in game.");
+  else {
+    const parsed = cardSb.api.parseSettings ? cardSb.api.parseSettings(card.entry) : {};
+    const keys = Object.keys(parsed);
+    keys.length >= 6
+      ? add("ok", "The settings card reads back cleanly", keys.length + " settings parsed out of the card the engine wrote.")
+      : add("warn", "The settings card only parsed " + keys.length + " settings",
+            "Check the label spellings in getSettingsCardEntry() against SETTINGS_MAP.");
+  }
+
+  // --- and finally, play it -------------------------------------------------
+  const r = dryRun("mixed", 120, 7);
+  if (r.error) add("err", "A 120 turn play-through crashed", r.error);
+  else {
+    const reached = Object.keys(r.reachedAt).length;
+    const total = locKeys.length;
+    const phases = PHASES.filter(p => r.phaseAt[p]);
+    add(reached ? (reached === total ? "ok" : "warn") : "err",
+        "120 turns played: " + reached + " of " + total + " places reached",
+        "Phases: " + (phases.join(" to ") || "early only") + ". " + r.injections + " beats injected" +
+        (r.avgGap ? ", one every " + r.avgGap + " turns" : "") + ". " +
+        (reached === total ? "" : "Places never reached: " +
+          locKeys.filter(k => !r.reachedAt[k]).join(", ") +
+          " - either no rung guides the player there, or the keywords are ones the AI would not write."));
+    if (phases.length <= 1)
+      add("warn", "The story never left its early phase",
+          "storyPhase moves on explorationLevel (8 for mid, 15 for late) and companionBond (20 for late, " +
+          "30 for endgame). If your places award no explorationBonus and the player is not typing your " +
+          "exploration words, it can sit in early forever - and every rung gated on a later phase is dead.");
+    else if (!phases.includes("mid"))
+      add("warn", "The story skipped its mid phase entirely",
+          "companionBond reached 20 before explorationLevel reached 8, and bond climbs on its own (+1 " +
+          "every five turns, and anything at intimacy 5 or more forces it to at least 15). Any rung " +
+          "gated on storyPhase === 'mid' never fired. Gate those rungs on explorationLevel instead, or " +
+          "give your places an explorationBonus so exploration keeps up.");
+  }
+
+  return out;
+}
+
+function renderChecks(list) {
+  const n = { ok: 0, warn: 0, err: 0 };
+  list.forEach(x => { n[x.level]++; });
+  el("testSummary").innerHTML =
+    '<span class="chip ok">' + n.ok + " fine</span> " +
+    '<span class="chip warn">' + n.warn + " worth a look</span> " +
+    '<span class="chip err">' + n.err + " broken</span>";
+  const order = { err: 0, warn: 1, ok: 2 };
+  el("testsBox").innerHTML = list.slice().sort((a, b) => order[a.level] - order[b.level]).map(x =>
+    '<div class="card tight"><div class="row" style="gap:8px">' +
+    '<span class="chip ' + x.level + '">' + (x.level === "ok" ? "fine" : x.level === "warn" ? "look" : "broken") + "</span>" +
+    "<b>" + esc(x.title) + "</b></div>" +
+    (x.detail ? '<p class="plain" style="margin:5px 0 0">' + esc(x.detail) + "</p>" : "") +
+    "</div>").join("");
+}
+
+/* =============================================================================
+   WIRING
+   ============================================================================= */
+
+function renderAll() {
+  renderNow(); renderQuick(); renderLog();
+  renderStory(); renderBuild(); renderLadder(); renderHood(); renderInstall();
+}
+
+function setPath(o, path, v) {
+  const p = String(path).split(".");
+  for (let i = 0; i < p.length - 1; i++) {
+    if (o == null) return;
+    o = o[p[i]];
+  }
+  if (o != null) o[p[p.length - 1]] = v;
+}
+
+function valueOfField(t) {
+  if (t.type === "checkbox") return t.checked;
+  const v = t.value;
+  switch (t.dataset.type) {
+    case "number": return parseInt(v, 10) || 0;
+    case "float":  return Math.max(0, Math.min(1, parseFloat(v) || 0));
+    case "list":   return String(v).split(",").map(s => s.trim()).filter(Boolean);
+    case "bool":   return v === "1" || v === "true";
+    default:       return v;
+  }
+}
+
+// Update just the derived text inside the rule that was edited, so typing in a
+// note or a number does not tear the form out from under the cursor.
+function refreshRuleInPlace(node) {
+  const rule = node.closest ? node.closest(".rule") : null;
+  if (!rule) return;
+  const r = B.rules[+rule.dataset.r];
+  if (!r) return;
+  const plain = rule.querySelector(".plain");
+  const gen = rule.querySelector(".genline");
+  if (plain) plain.textContent = ruleText(r, MODEL);
+  if (gen) gen.textContent = ruleCode(r, "");
+}
+
+function onFieldInput(e) {
+  const t = e.target;
+  if (!B || !t.dataset || !t.dataset.b) return;
+  setPath(B, t.dataset.b, valueOfField(t));
+  markDirty(true);
+  refreshRuleInPlace(t);
+  renderOut();
+  const raw = el("ladderRaw");
+  if (raw && raw.firstChild && !B.rawLadder) {
+    const pre = raw.querySelector("pre");
+    if (pre) pre.textContent = ladderCode(B.rules);
+  }
+}
+
+function onFieldChange(e) {
+  const t = e.target;
+  if (!B || !t.dataset) return;
+  if (t.dataset.b) { setPath(B, t.dataset.b, valueOfField(t)); markDirty(true); }
+  if (t.dataset.act === "condKind") {
+    const r = B.rules[+t.dataset.r];
+    if (r) r.conds[+t.dataset.c] = newCond(t.value, MODEL);
+    renderLadder(); return;
+  }
+  if (t.dataset.rerender) { renderBuild(); renderLadder(); return; }
+  refreshRuleInPlace(t);
+  renderOut();
+}
+
+function onBuilderClick(e) {
+  const b = e.target.closest("button[data-act]");
+  if (!b || !B) return;
+  const act = b.dataset.act;
+  const i = +b.dataset.i;
+
+  switch (act) {
+    case "addLoc":
+      B.locations.push({ key: "place" + (B.locations.length + 1), keywords: [],
+                         bondBonus: 0, explorationBonus: 0, moodOnArrival: "", intimacyBonus: 0 });
+      renderBuild(); markDirty(true); break;
+    case "delLoc": B.locations.splice(i, 1); renderBuild(); renderLadder(); markDirty(true); break;
+    case "addBeat":
+      B.triggers.push({ cat: "location", key: "beat" + (B.triggers.length + 1), text: "[Tell the AI what to do]" });
+      renderBuild(); markDirty(true); break;
+    case "delBeat": B.triggers.splice(i, 1); renderBuild(); renderLadder(); markDirty(true); break;
+
+    case "addRule":
+      B.rules.push({ on: true, note: "", conds: [newCond("phase", MODEL)], chance: 1,
+                     beat: (B.triggers[0] ? B.triggers[0].cat + "." + B.triggers[0].key : "") });
+      renderLadder(); markDirty(true); break;
+    case "delRule": B.rules.splice(i, 1); renderLadder(); markDirty(true); break;
+    case "dupRule": B.rules.splice(i + 1, 0, copy(B.rules[i])); renderLadder(); markDirty(true); break;
+    case "ruleUp":
+      if (i > 0) { const r = B.rules.splice(i, 1)[0]; B.rules.splice(i - 1, 0, r); renderLadder(); markDirty(true); }
+      break;
+    case "ruleDown":
+      if (i < B.rules.length - 1) { const r = B.rules.splice(i, 1)[0]; B.rules.splice(i + 1, 0, r); renderLadder(); markDirty(true); }
+      break;
+    case "addCond":
+      B.rules[i].conds.push(newCond("phase", MODEL)); renderLadder(); markDirty(true); break;
+    case "delCond":
+      B.rules[+b.dataset.r].conds.splice(+b.dataset.c, 1); renderLadder(); markDirty(true); break;
+
+    case "rulePresets": showPresets(); break;
+    case "addPreset":
+      B.rules.push(copy(rulePresets()[i][1])); renderLadder(); markDirty(true); break;
+
+    case "dropRaw":
+      B.rawLadder = null;
+      B.rules = rulePresets().map(p => copy(p[1]));
+      renderLadder(); renderStory(); markDirty(true); break;
+    case "forceParse": {
+      const parsed = parseLadder(B.rawLadder);
+      if (parsed) { B.rules = parsed; B.rawLadder = null; renderLadder(); renderStory(); markDirty(true); }
+      else b.outerHTML = '<span class="chip err">still cannot - it really is too clever</span>';
+      break;
+    }
+
+    case "seedExample": loadStarter("example", true); break;
+    case "seedLoaded": B = builderFromModel(MODEL); renderBuild(); renderLadder(); markDirty(false); break;
+    case "useBuild": useBuild(); break;
+    case "copyBuild": copyText(generateSource(B) || "", b); break;
+    case "downloadBuild": download("library.js", generateSource(B) || ""); break;
+    case "copyText": copyText(textForFile(b.dataset.file), b); break;
+    case "downloadText": download(b.dataset.file, textForFile(b.dataset.file)); break;
+
+    case "applyCard": {
+      const box = document.querySelector('textarea[data-card="' + i + '"]');
+      if (box && sb.storyCards[i]) {
+        sb.storyCards[i].entry = box.value;
+        runTurn(sb, "(settings applied)", "Nothing happens.");
+        LOG.push({ no: (progressionOf(sb) || {}).totalTurns, phase: (progressionOf(sb) || {}).storyPhase,
+                   player: "(settings card applied)", ai: "-", injected: "", message: "", changes: [] });
+        renderAll();
+      }
+      break;
+    }
+  }
+}
+
+function showPresets() {
+  const box = el("ladderBox");
+  if (!box || document.getElementById("presetPanel")) return;
+  const d = document.createElement("div");
+  d.id = "presetPanel";
+  d.className = "card";
+  d.innerHTML = '<h3 class="sec">Rungs people usually want</h3>' +
+    rulePresets().map(([label, r], i) =>
+      '<div class="row" style="margin-bottom:6px"><button class="tiny" data-act="addPreset" data-i="' + i +
+      '">+ add</button><span class="small">' + esc(label) + "</span></div>").join("");
+  box.insertBefore(d, box.firstChild);
+}
+
+/* ---- clipboard and downloads --------------------------------------------- */
+
+function copyText(text, btn) {
+  const done = () => {
+    if (!btn) return;
+    const old = btn.textContent;
+    btn.textContent = "copied";
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, () => fallback());
+  } else fallback();
+  function fallback() {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); done(); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+}
+
+function download(name, text) {
+  const blob = new Blob([text], { type: "text/javascript" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+/* ---- playing turns ------------------------------------------------------- */
+
+function send(playerText, aiText) {
+  try {
+    LOG.push(runTurn(sb, playerText, aiText));
+  } catch (e) {
+    LOG.push({ no: "-", phase: "-", player: playerText, ai: "(the script threw)",
+               injected: "", message: String(e && e.message || e), changes: [] });
+  }
+  if (LOG.length > 60) LOG.shift();
+  renderNow(); renderLog(); renderHood(); renderStory();
+  if (LIVE_EVAL) renderLadder();
+}
+
+function useBuild() {
+  const gen = generateSource(B);
+  const note = el("buildDirty");
+  if (!gen) {
+    if (note) note.innerHTML = '<span class="chip err">no engine section to build onto</span>';
+    return;
+  }
+  try {
+    const test = createSandbox(gen);
+    SOURCE = gen;
+    sb = test;
+    MODEL = readModel(sb);
+    LOG = [];
+    remember(SOURCE, "your build");
+    renderAll();
+    markDirty(false);
+  } catch (e) {
+    if (note) note.innerHTML = '<span class="chip err">' + esc(String(e && e.message || e).split("\n")[0]) + "</span>";
+  }
+}
+
+/* ---- loading ------------------------------------------------------------- */
+
+function boot(source, name) {
+  try {
+    const next = createSandbox(String(source));
+    SOURCE = String(source);
+    sb = next;
+    MODEL = readModel(sb);
+    B = builderFromModel(MODEL);
+    LOG = [];
+    LIVE_EVAL = false;
+    const live = el("ladderLive");
+    if (live) live.checked = false;
+    el("loadError").innerHTML = "";
+    el("loader").style.display = "none";
+    el("app").style.display = "block";
+    el("btnUnload").style.display = "";
+    el("loadedName").textContent = name || "";
+    remember(SOURCE, name || "");
+    renderAll();
+    markDirty(false);
+  } catch (e) {
+    el("loadError").innerHTML = '<div class="card"><span class="chip err">could not load it</span>' +
+      '<pre class="entry" style="margin-top:8px">' + esc(String(e && e.message || e)) + "</pre></div>";
+  }
+}
+
+function remember(src, name) {
+  try { localStorage.setItem("spf.source", src); localStorage.setItem("spf.name", name); } catch (e) {}
+}
+
+const RAW_BASE = "https://raw.githubusercontent.com/Oratorian/Story-Progression-Framework/refs/heads/main/";
+const STARTERS = {
+  template: { file: "library.js", what: "the blank framework" },
+  example:  { file: "EXAMPLE - The Lighthouse (filled in).js", what: "the lighthouse example" }
+};
+
+async function loadStarter(key, intoBuilderOnly) {
+  const s = STARTERS[key];
+  if (!s) return;
+  const enc = encodeURIComponent(s.file);
+  const hint = el("loadHint");
+
+  const use = (text) => {
+    if (!intoBuilderOnly) return boot(text, s.file);
+    try {
+      const other = createSandbox(text);
+      B = builderFromModel(readModel(other));
+      renderBuild(); renderLadder(); markDirty(true);
+    } catch (e) { /* leave the builder alone */ }
+  };
+
+  for (const where of ["", "../"]) {
+    try {
+      const res = await fetch(where + enc);
+      if (res.ok) { if (hint) hint.innerHTML = ""; use(await res.text()); return; }
+    } catch (e) { /* file:// refuses to read neighbours; GitHub next */ }
+  }
+
+  if (hint) hint.textContent = "fetching " + s.what + " from github.com/Oratorian/Story-Progression-Framework ...";
+  try {
+    const res = await fetch(RAW_BASE + enc, { cache: "no-cache" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    if (hint) hint.innerHTML = "";
+    use(await res.text());
+  } catch (e) {
+    if (hint) hint.innerHTML =
+      "Could not fetch " + esc(s.what) + " (" + esc(e.message) + "). " +
+      'Download <a href="' + RAW_BASE + enc + '" target="_blank" rel="noopener">' + esc(s.file) + "</a>" +
+      ' and load it with "Use my own file", or paste it below.';
+  }
+}
+
+/* ---- events -------------------------------------------------------------- */
+
+el("tabs").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-tab]");
+  if (!b) return;
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x.id === "tab-" + b.dataset.tab));
+});
+
+["tab-build", "tab-ladder"].forEach(id => {
+  const node = el(id);
+  node.addEventListener("input", onFieldInput);
+  node.addEventListener("change", onFieldChange);
+  node.addEventListener("click", onBuilderClick);
+});
+el("tab-install").addEventListener("click", onBuilderClick);
+el("tab-hood").addEventListener("click", onBuilderClick);
+
+el("ladderLive").addEventListener("change", (e) => { LIVE_EVAL = e.target.checked; renderLadder(); });
+
+el("btnSend").onclick = () => {
+  send(el("playerText").value, el("aiText").value);
+  el("aiText").value = "";
+};
+el("playerText").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); el("btnSend").click(); }
+});
+el("btnSkip").onclick = () => {
+  for (let i = 0; i < 5; i++) send("I keep going.", "");
+};
+el("btnReset").onclick = () => {
+  try { sb = createSandbox(SOURCE); LOG = []; renderAll(); } catch (e) {}
+};
+el("quickPlayer").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-say]");
+  if (!b) return;
+  el("playerText").value = b.dataset.say;
+  send(b.dataset.say, el("aiText").value);
+  el("aiText").value = "";
+});
+el("quickAi").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-ai]");
+  if (!b) return;
+  const player = el("playerText").value.trim() || "I keep going.";
+  el("aiText").value = b.dataset.ai;
+  send(player, b.dataset.ai);
+  el("aiText").value = "";
+});
+
+el("btnDry").onclick = () => {
+  const btn = el("btnDry");
+  btn.disabled = true;
+  btn.textContent = "playing...";
+  setTimeout(() => {
+    try {
+      renderDry(dryRun(el("dryProfile").value, parseInt(el("dryTurns").value, 10) || 80,
+                       parseInt(el("drySeed").value, 10) || 1));
+    } catch (e) {
+      el("drySummary").innerHTML = '<div class="card"><span class="chip err">it crashed</span> ' +
+        esc(String(e && e.message || e)) + "</div>";
+      el("dryTable").innerHTML = "";
+    }
+    btn.disabled = false;
+    btn.textContent = "Run it";
+  }, 10);
+};
+
+el("btnTests").onclick = () => {
+  const btn = el("btnTests");
+  btn.disabled = true;
+  btn.textContent = "checking...";
+  setTimeout(() => {
+    try { renderChecks(runChecks()); }
+    catch (e) {
+      el("testsBox").innerHTML = '<div class="card"><span class="chip err">the checks themselves fell over</span> ' +
+        esc(String(e && e.message || e)) + "</div>";
+    }
+    btn.disabled = false;
+    btn.textContent = "Run all checks";
+  }, 10);
+};
+
+el("btnUnload").onclick = () => {
+  el("app").style.display = "none";
+  el("loader").style.display = "";
+  el("btnUnload").style.display = "none";
+  el("loadedName").textContent = "";
+};
+
+const drop = el("drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, (e) => {
+  e.preventDefault(); drop.classList.add("over");
+}));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, () => drop.classList.remove("over")));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) readFile(f);
+});
+el("file").addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (f) readFile(f);
+});
+function readFile(f) {
+  const r = new FileReader();
+  r.onload = () => boot(String(r.result), f.name);
+  r.readAsText(f);
+}
+el("btnPaste").onclick = () => {
+  const src = el("pasteBox").value;
+  if (src.trim()) boot(src, "pasted text");
+};
+drop.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-starter]");
+  if (b) loadStarter(b.dataset.starter);
+});
+
+/* remember the last script so a refresh keeps working */
+(function restore() {
+  let src = null, name = "";
+  try { src = localStorage.getItem("spf.source"); name = localStorage.getItem("spf.name") || ""; } catch (e) {}
+  if (!src) return;
+  el("loadHint").innerHTML = "Last loaded: <b>" + esc(name) + '</b> - <a href="#" id="again">use it again</a>';
+  const a = el("again");
+  if (a) a.onclick = (e) => { e.preventDefault(); boot(src, name); };
+})();
+</script>
+</body>
+</html>
