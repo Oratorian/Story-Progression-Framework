@@ -414,6 +414,12 @@ function loadConfigFromWorldInfo() {
 function StoryProgression(modifierType, text) {
   loadConfigFromWorldInfo();
 
+  // AI Dungeon does not always hand us a ready-made state.memory, and a fresh
+  // adventure can arrive with nothing on it at all. Create it before we read
+  // through it, or the very first turn dies with "cannot read storyProgression
+  // of undefined".
+  if (!state.memory) state.memory = {};
+
   if (!state.memory.storyProgression) {
     initializeProgressionState();
   }
@@ -716,7 +722,7 @@ function logDebug(progression, message) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    StoryProgression, TRIGGERS, PROGRESSION_CONFIG,
+    StoryProgression, STORY_CONFIG, TRIGGERS, PROGRESSION_CONFIG,
     // exposed for testing
     parseSettings, applySettings, findSettingsCard, ensureSettingsCard,
     getSettingsCardEntry, loadConfigFromWorldInfo, getRichTrigger,
