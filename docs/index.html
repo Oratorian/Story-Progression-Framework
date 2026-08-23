@@ -366,10 +366,10 @@
           <p class="small muted" style="margin-top:0">
             Plays a whole game against the loaded script without you typing anything, so you can see the
             pacing: how long until the story leaves its early phase, which beats carry it, and which ones
-            never fire at all. Same seed, same run - change the seed to see a different player.
+            never fire at all.
           </p>
           <div class="row" style="margin-bottom:10px">
-            <label class="inline">plays like
+            <label class="inline" title="which kinds of action the pretend player favours">plays like
               <select id="dryProfile">
                 <option value="explorer">an explorer</option>
                 <option value="romantic">a romantic</option>
@@ -379,9 +379,34 @@
               </select>
             </label>
             <label class="inline">turns <input type="number" id="dryTurns" value="80" min="5" max="600" style="width:78px"></label>
-            <label class="inline">seed <input type="number" id="drySeed" value="1" min="0" max="99999" style="width:78px"></label>
+            <label class="inline" title="the number this run's dice are wound back to. Same seed, same eighty turns, every time.">seed
+              <input type="number" id="drySeed" value="1" min="0" max="99999" style="width:78px"></label>
             <button class="primary" id="btnDry">Run it</button>
+            <button id="btnDrySeed" title="run the same settings as a different player">try another player</button>
           </div>
+
+          <details class="card" style="margin-bottom:12px">
+            <summary class="small" style="cursor:pointer; color:var(--dim)">What is the <b>seed</b> for?</summary>
+            <p class="plain">
+              A run like this is full of dice. Which of your keywords the pretend player types this turn,
+              whether the pretend AI does what the injected beat asked, and every
+              <span class="mono">Math.random()</span> coin flip in your own ladder - all of it is chance.
+              Press <b>Run it</b> twice on genuinely random dice and you get two different stories, and no
+              way to tell whether the difference came from your script or from luck.
+            </p>
+            <p class="plain">
+              The seed is the number those dice are wound back to before the run starts.
+              <b>The same seed always plays out exactly the same eighty turns.</b> So when you change a rung,
+              re-run on the same seed and every difference you see is caused by your change and nothing else.
+              That is the whole point of it.
+            </p>
+            <p class="plain">
+              Then change the seed - or press <b>try another player</b> - to get a completely different run
+              from the same settings. A ladder that only works on seed 1 is a ladder that only works for one
+              lucky player; if the places still get reached and the phases still arrive across three or four
+              seeds, the pacing is genuinely sound rather than a fluke.
+            </p>
+          </details>
           <div id="drySummary"></div>
           <div id="dryTable"></div>
         </div>
@@ -1990,6 +2015,11 @@ function renderStory() {
    is what makes the loop - nudge, arrival, next nudge - actually show up.
    ============================================================================= */
 
+const PROFILE_NAMES = {
+  explorer: "an explorer", romantic: "a romantic", questing: "a treasure hunter",
+  mixed: "a bit of everything", passive: "someone who mostly talks"
+};
+
 const PROFILES = {
   explorer:  { explore: 6, intimate: 1, seek: 2, memory: 1, mood: 1, idle: 2, follows: 0.7 },
   romantic:  { explore: 2, intimate: 6, seek: 1, memory: 2, mood: 2, idle: 2, follows: 0.5 },
@@ -2106,6 +2136,7 @@ function dryRun(profileName, turns, seed) {
   return {
     rows: rows, fired: fired, phaseAt: phaseAt, reachedAt: reachedAt, metAt: metAt,
     allBeats: allBeats, error: error, turns: turns,
+    profile: profileName, seed: seed,
     avgGap: gaps.length ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length * 10) / 10 : null,
     injections: Object.values(fired).reduce((a, b) => a + b, 0),
     final: progressionOf(s) || {}
@@ -2122,6 +2153,10 @@ function renderDry(r) {
     esc(r.error) + "</span></div>";
 
   h += '<div class="card"><dl class="kv">' +
+    kv("this run", '<span class="chip mag">seed ' + esc(r.seed) + "</span> " +
+      '<span class="chip">' + esc((PROFILE_NAMES[r.profile] || r.profile)) + "</span> " +
+      '<span class="small muted">re-run on seed ' + esc(r.seed) +
+      " and you get these exact turns back</span>") +
     kv("turns played", r.rows.length) +
     kv("beats injected", r.injections + (r.avgGap ? " (one every " + r.avgGap + " turns)" : "")) +
     kv("phases reached", phases.length ? esc(phases.join(", ")) : "stayed in early") +
@@ -2828,6 +2863,14 @@ el("btnDry").onclick = () => {
     btn.disabled = false;
     btn.textContent = "Run it";
   }, 10);
+};
+
+// "Try another player" is just the seed control with the explaining done for you:
+// wind the dice to a different number, same settings otherwise, and run again.
+el("btnDrySeed").onclick = () => {
+  const box = el("drySeed");
+  box.value = ((parseInt(box.value, 10) || 1) + 1) % 100000;
+  el("btnDry").click();
 };
 
 el("btnTests").onclick = () => {
