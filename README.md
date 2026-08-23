@@ -6,6 +6,7 @@ A customizable, intelligent progression system for AI Dungeon scenarios. It auto
 
 - [Features](#features)
 - [How It Works](#how-it-works)
+- [The Planner](#the-planner-set-it-up-without-writing-any-code) — set it up without writing any code
 - [Quick Start](#quick-start)
 - [File Structure](#file-structure)
 - [Customization Guide](#customization-guide)
@@ -44,6 +45,38 @@ AI Dungeon runs three script hooks on every turn. This framework plugs a single 
 
 All shared logic lives in `library.js`, which AI Dungeon automatically prepends to the other three scripts. State persists across turns in `state.memory.storyProgression`.
 
+## The Planner: set it up without writing any code
+
+Everything in the customization guide below can be done in a browser instead, on a single page that
+needs no install, no account and no network once it has your file:
+
+**[Open the planner](https://oratorian.github.io/Story-Progression-Framework/web/)** — or open
+`web/index.html` from a downloaded copy of this repository. Either way nothing you load leaves your
+browser. Offline, drop your `library.js` onto the page (or paste it in) rather than using the two
+starting-point buttons: browsers will not let a `file://` page read the files next to it.
+
+It does the three hard parts for you:
+
+| | |
+|---|---|
+| **Lays out your world in forms** | Places, people, collectibles, keyword lists and beats, with plain-English explanations of what every field actually does. |
+| **Builds the ladder by clicking** | `getRichTrigger()` — the part that puts most people off — becomes an ordered list of rungs. Pick conditions from dropdowns; the page writes the JavaScript and shows you both the code and a sentence describing it. Hand-written functions it cannot take apart are kept **verbatim**, never rewritten. |
+| **Writes the finished `library.js`** | Your sections 1–3 plus the engine, copied unchanged out of whichever file you loaded, so the output is never built on a stale engine. Copy or download all four files from the **Install** tab. |
+
+And then proves it works before you paste anything into AI Dungeon:
+
+- **Play turns** against your own script — you type the action, you type what the AI wrote back, and the
+  page shows exactly what got injected and what changed.
+- **Dry run** plays 80+ turns by itself with a chosen kind of player and a fixed seed, so you can see the
+  pacing: when each phase arrives, which places get reached, which beats carry the story, and which never
+  fire at all.
+- **Checks** catches the things that fail silently — rungs pointing at places you renamed, keywords that
+  swallow each other, rungs the ladder can never reach, beats missing their brackets, and a full
+  120-turn play-through.
+
+Start from **`library.js`** for a blank slate, or from
+**`EXAMPLE - The Lighthouse (filled in).js`** for a complete worked story to take apart.
+
 ## Quick Start
 
 1. Open your scenario's **Scripts** editor in AI Dungeon (Edit Scenario → Details → Scripts).
@@ -59,7 +92,10 @@ Story Progression Framework/
 ├── library.js    # Core engine — CUSTOMIZE THIS (paste into the Library tab)
 ├── input.js      # Tracks player behavior (paste into Input tab, no changes)
 ├── context.js    # Injects triggers (paste into Context tab, no changes)
-└── output.js     # Detects story events (paste into Output tab, no changes)
+├── output.js     # Detects story events (paste into Output tab, no changes)
+├── EXAMPLE - The Lighthouse (filled in).js   # a complete worked story
+└── web/
+    └── index.html   # the planner and test harness (see above) — open it directly
 ```
 
 ## Customization Guide
@@ -229,6 +265,11 @@ Notice: the place is `location1`, the beat is `loc1`. **Two different names, del
 
 ### Step 3: Wire It Together in `getRichTrigger()` (the heart of the framework)
 
+> **Prefer clicking to typing?** This whole function can be built from dropdowns in
+> [the planner](#the-planner-set-it-up-without-writing-any-code) — one rung at a time, with the
+> generated JavaScript shown beside each one. The rest of this section explains what the planner is
+> writing for you, which is worth reading either way.
+
 This is where your story actually comes to life. `getRichTrigger()` is a **priority ladder**: on each eligible turn the engine walks it top to bottom and injects the **first** beat whose conditions are met. This function is the *only* place your places and your beats get connected — everything above was just declaring vocabulary.
 
 Read every branch as one sentence: **"GIVEN this state, INJECT this beat."**
@@ -378,6 +419,9 @@ if (progression.magicUseCount >= 5) {
 ## Troubleshooting
 
 **Triggers not firing?**
+- Load your `library.js` into [the planner](#the-planner-set-it-up-without-writing-any-code) and press
+  **Run all checks** — silent breakages (a rung pointing at a renamed place, a rung the ladder can never
+  reach, a place whose keywords the AI would never write) are exactly what it looks for.
 - Enable Debug Mode to inspect the current state.
 - Check that your exploration thresholds aren't set too high.
 - Confirm Trigger Pacing isn't too slow.
@@ -387,6 +431,16 @@ if (progression.magicUseCount >= 5) {
 - Review the priority order in `getRichTrigger()`.
 - Confirm locations/characters are actually being detected in the output modifier (their keywords must appear in the AI's text).
 - Check keyword matching in `STORY_CONFIG.behaviorKeywords`.
+
+**Rungs gated on `storyPhase === 'mid'` never fire?**
+- The phase can skip `mid` entirely. `updateStoryPhase()` promotes to `late` on **either**
+  `explorationLevel >= 15` **or** `companionBond >= 20`, and bond climbs on its own (+1 every five turns,
+  and any intimacy of 5 or more forces it to at least 15). If your places award no `explorationBonus` and
+  the player is not typing your exploration words, bond reaches 20 long before exploration reaches 8, and
+  the story goes straight from `early` to `late`.
+- Fix it either way: gate those rungs on `explorationLevel` instead of on the phase, or give your places
+  an `explorationBonus` so exploration keeps up with the bond. The planner's **Dry run** tab shows which
+  turn each phase arrives on, and its checks flag a skipped `mid`.
 
 **Settings card not appearing?**
 - It's created on the first turn the scripts run — play one action, then check your story-cards list (it's pinned near the top by default).
